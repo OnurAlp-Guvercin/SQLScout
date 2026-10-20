@@ -19,6 +19,7 @@ BIRD dev `data/bird/dev/` altında; column profile'ları `data/prepared/<db_id>/
 - [docs/AGENTIC_FLOW.md](docs/AGENTIC_FLOW.md): akış (11 adım), terim sözlüğü, tasarım kararları. **Bir adımı kodlamadan önce o adımı oku.**
 - [docs/KOD_YAPISI.md](docs/KOD_YAPISI.md): kod kuralları, dosya haritası, tool'lar, sabitler ve flag'ler, kayıt biçimleri, yazım sırası (aşağıda içeri aktarılıyor).
 - [docs/ARASTIRMA.md](docs/ARASTIRMA.md): literatür. Veri setleri 8. bölümde, hiperparametreler ve ödüller 9. bölümde; gerektiğinde oku.
+- `docs/en/` (AGENTIC_FLOW.md, CODE_STRUCTURE.md, RESEARCH.md) ve `README.md`: hoca ve okuyucular için İngilizce çeviriler; asıl dokümanlar Türkçedir. Türkçe bir doküman değişirse İngilizcesi de aynı değişiklikle güncellenir. İngilizce akış görseli `docs/diyagram/flow_diagram_en.py` → `docs/PGS_flow_EN.png`; Türkçe görsel değişirse o da değişir.
 
 @docs/KOD_YAPISI.md
 
