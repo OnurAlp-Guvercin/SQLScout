@@ -1,0 +1,17 @@
+# Gizli değerler (API anahtarı)
+.env
+
+# Büyük veri setleri ve hazırlanmış dosyalar (BIRD ~33 GB, Mini-Interact); README'de nasıl indirileceği yazıyor
+data/
+
+# Çalışma sırasında biriken kayıtlar
+experience/log.jsonl
+experience/memory/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Diyagramın ara çıktısı
+docs/diyagram/flow.html
