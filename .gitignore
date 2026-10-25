@@ -6,6 +6,7 @@ data/
 
 # Çalışma sırasında biriken kayıtlar
 experience/log.jsonl
+experience/executions.jsonl
 experience/memory/
 
 # Python

@@ -17,7 +17,7 @@ def call_reply(tool, args):
 
 
 def execute_reply(sql, forecast=ONE_ROW):
-    return call_reply("execute_sql", {"sql": sql, "forecast": forecast})
+    return call_reply("execute_sql", {"sql": sql, **forecast})
 
 
 def submit_reply(sql):
@@ -27,8 +27,3 @@ def submit_reply(sql):
 def sql_reply(sql):
     """Candidate'in cevabı: tool'suz, ```sql bloğunda tek SQL."""
     return text_reply(f"```sql\n{sql}\n```")
-
-
-def json_reply(data):
-    """World model'in cevabı: tool'suz bir JSON metni."""
-    return text_reply(json.dumps(data))

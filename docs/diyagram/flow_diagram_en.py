@@ -6,7 +6,7 @@ same layout, coordinates, colors and step numbers; only the text differs.
 Usage (from the project root):
   python3 docs/diyagram/flow_diagram_en.py
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
-    --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,2230 \
+    --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,1930 \
     --screenshot=docs/PGS_flow_EN.png "file://$PWD/docs/diyagram/flow_en.html"
 
 Boxes are drawn with node(), arrows with arrow(), arrow labels with label(). Coordinates are CSS pixels.
@@ -16,11 +16,10 @@ import os
 HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flow_en.html')
 import html as H
 
-W, HGT = 1960, 2230
+W, HGT = 1960, 1930
 LX = [50, 426, 802, 1178, 1554]; LW = 364
 C = {
  'policy':  ('#2f6db5', '#e8f0fb', '#f3f7fd'),
- 'world':   ('#b5730f', '#fdf0db', '#fdf8ef'),
  'harness': ('#2e7d55', '#e6f3ec', '#f2f8f4'),
  'db':      ('#b8323a', '#fbe5e6', '#fcf3f3'),
  'teacher': ('#0e7490', '#e0f2f7', '#f1f8fb'),
@@ -34,24 +33,21 @@ svg, divs = [], []
 def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-4B',
-      '<b>First version:</b> untrained. <b>Training (optional, at the end):</b> SFT on teacher traces → on-policy distillation → RL',
+      '<b>Now:</b> untrained. <b>Later:</b> inside the harness, with the experience log: SFT → on-policy distillation → RL',
       '<b>Role:</b> decides which tool to call; predicts the result before running SQL (forecast)'),
-     ('world','WORLD MODEL','First version: placeholder LLM',
-      '<b>First version:</b> an untrained LLM, prompted to act as a world model. <b>Training (optional):</b> Qwen3.5-0.8B + LoRA, on logged executions',
-      '<b>Role:</b> pre-check when execution is expensive; never replaces the answer'),
      ('harness','HARNESS (no LLM)','plain Python',
-      'Context preparation, search, ask_user, pre-check, compare & log, candidate selection, gates, final check',
-      '<b>Guardrails:</b> no repeated calls · long results trimmed · context compressed'),
+      'Context preparation, search_values, ask_user, pre-check, compare, candidate selection, confidence gate, final check',
+      '<b>Guardrails:</b> no repeated calls · long results trimmed · context compressed · submit reminder when the budget is low'),
      ('db','REAL DATABASE','SQLite, read-only',
       'Exposed as the <i>execute_sql</i> tool',
-      '<b>Rule:</b> every submitted answer has really been executed; a prediction alone can never be the answer'),
+      '<b>Rule:</b> every submitted answer has really been executed'),
      ('teacher','TEACHER LLM','Qwen3.6-27B (4-bit, ~16–17 GB)',
-      'Used only after a handoff. Continues <b>where the agent left off</b>, with a new budget and the same tools',
-      '<b>Role:</b> solves the hard case; its solution becomes new distillation data'),
+      'Used only after a handoff. Continues <b>where the agent left off</b>, with half the budget (5 tool calls) and the same tools',
+      '<b>Role:</b> solves the case the agent could not; its solution becomes training data'),
     ]
-    for i,(k,t,s,a,b) in enumerate(heads):
-        x=LX[i]; stroke,fill,bg=C[k]
-        svg.append(f'<rect x="{x}" y="130" width="{LW}" height="1890" rx="14" fill="{bg}" stroke="{stroke}" stroke-opacity="0.35" stroke-width="1.5"/>')
+    for x,(k,t,s,a,b) in zip([LX[0],LX[2],LX[3],LX[4]],heads):
+        stroke,fill,bg=C[k]
+        svg.append(f'<rect x="{x}" y="130" width="{LW}" height="1530" rx="14" fill="{bg}" stroke="{stroke}" stroke-opacity="0.35" stroke-width="1.5"/>')
         svg.append(f'<rect x="{x}" y="130" width="{LW}" height="215" rx="14" fill="{fill}" stroke="{stroke}" stroke-width="2.5"/>')
         divs.append(f'<div class="hd" style="left:{x+14}px;top:142px;width:{LW-28}px">'
                     f'<div class="ht" style="color:{stroke}">{t}</div><div class="hs" style="color:{stroke}">{s}</div>'
@@ -61,7 +57,7 @@ def node(x,y,w,h,kind,title,body='',shape='rect',dashed=False,tsize=19):
     stroke,fill,_=C[kind]
     if kind in ('io',): fill='#ffffff'
     da=' stroke-dasharray="8 6"' if dashed else ''
-    f = '#ffffff' if dashed and kind in ('policy','world','harness','db') else fill
+    f = '#ffffff' if dashed and kind in ('policy','harness','db') else fill
     if shape=='rect':
         svg.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="{f}" stroke="{stroke}" stroke-width="2.5"{da}/>')
     elif shape=='pill':
@@ -94,95 +90,90 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','User question','e.g. “Which category had the most returns in 2025?”',shape='pill',tsize=18)
-node(822,350,324,112,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles · value matches for words in the question · database memory',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles · database memory · over 16K: the policy model selects tables',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'question','k')
-arrow([(984,462),(984,478),(300,478),(300,496)],'b'); label(640,478,'initial context','b')
+arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'initial context','b')
 
-node(70,500,320,1160,'policy','','')
+node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
 <li>If the question is ambiguous, ask the user (<i>ask_user</i>)</li>
-<li>Before running SQL, write a <b>forecast</b>:<br><i>result type:</i> error / empty / rows<br><i>result shape:</i> columns + row count<br>+ <i>trust</i> or <i>unsure</i></li>
-<li>Read the observation</li><li>Repeat until <i>submit</i> or <i>handoff</i></li></ul>
+<li>Before running SQL, write a <b>forecast</b>:<br><i>type</i>: error / empty / rows<br>optional: <i>columns</i>, <i>rows</i>, <i>trust</i></li>
+<li>Read the observation</li><li>Repeat until <i>submit</i></li></ul>
 <p>Budget: at most 10 tool calls</p></div>''')
 
 # handoff from agent (top)
-arrow([(390,524),(1736,524),(1736,1376)],'t',w=3)
-label(600,524,'<b>Handoff:</b> out of budget · agent stuck · final check failed twice','t')
+arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
+label(600,524,'<b>Handoff:</b> out of budget · final check failed twice','t')
 
-node(822,546,324,118,'harness','search_schema · search_values · ask_user','Tables, columns, values missing from step 1, or the user\'s answer · copy kept for step 8',tsize=17)
-node(1226,560,296,92,'io','User','Answers the ask_user question (user simulator in evaluation)',shape='pill',tsize=19)
+node(822,546,324,118,'harness','search_values · ask_user','The spelling of a value step 1 does not show, or the user\'s answer · copy kept for step 7',tsize=17)
+node(1226,560,296,92,'io','User','Answers the ask_user question at the terminal',shape='pill',tsize=19)
 arrow([(1146,584),(1222,584)],'k'); label(1186,584,'ask_user','k')
 arrow([(1226,630),(1150,630)],'b'); label(1186,630,'answer','b')
 arrow([(390,584),(818,584)],'k')
-arrow([(822,630),(394,630)],'b'); label(606,630,'tables, columns, values · user\'s answer','b')
+arrow([(822,630),(394,630)],'b'); label(606,630,'spelling of a value · user\'s answer','b')
 
-node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN)<br>3. Already run before (cache)?<br>4. Ask the world model?',tsize=18)
+node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN)<br>3. Already run before (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql request + agent forecast','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'check error or cached result','b')
 
 node(1226,700,296,92,'db','execute_sql','Runs the query, read-only',tsize=19)
 arrow([(1146,746),(1222,746)],'k'); label(1186,746,'run','k')
 
-node(446,868,324,108,'world','predict_sql','<i>Result type:</i> error / empty / rows<br><i>Result shape:</i> columns + row count<br><i>Values</i> · + a confidence for each',tsize=19)
-arrow([(900,840),(900,920),(774,920)],'k'); label(900,876,'expensive query · low budget','k')
 
-node(446,1012,324,84,'decision','Prediction gate','Type and shape confidence ≥ 0.9?<br>(values are info only)',shape='hex',tsize=18)
-arrow([(608,976),(608,1008)],'k')
-arrow([(560,1096),(560,1124),(394,1124)],'b'); label(560,1124,'trusted → prediction, interim step only','b')
-arrow([(770,1054),(1300,1054),(1300,796)],'p'); label(1040,1054,'untrusted or 5% audit → run','p')
 
-node(822,1150,324,104,'harness','Compare & log','Real result ↔ agent forecast ↔ world model prediction · on a miss, a <b>surprise note</b>',tsize=18)
-arrow([(1440,792),(1440,1200),(1150,1200)],'k')
-arrow([(822,1226),(394,1226)],'b'); label(606,1226,'real result + surprise note','b')
+node(822,900,324,104,'harness','Compare','Real result ↔ agent forecast · on a miss, a <b>surprise note</b>',tsize=18)
+arrow([(1440,792),(1440,950),(1150,950)],'k')
+arrow([(822,976),(394,976)],'b'); label(606,976,'real result + surprise note','b')
 
-node(822,1282,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (prompt: question + evidence + user answers + schema + search notes; no agent SQL) · 8 in total if no consensus · largest group',tsize=18)
-arrow([(390,1330),(818,1330)],'k'); label(606,1330,'submit','k')
+node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (prompt: question + evidence + user answers + schema + search notes; no agent SQL) · 8 in total if no consensus · largest group',tsize=18)
+arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
+arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL does not run → error','b')
 
-node(1226,1300,296,112,'db','execute_sql (candidates)','Candidates not in cache are run · for expensive queries the world model filters first (5 → 6)',tsize=18)
-arrow([(1146,1336),(1222,1336)],'k')
-arrow([(1226,1384),(1150,1384)],'k')
-node(822,1444,324,96,'decision','Confidence gate','Consensus: 3/3 or ≥6/8 → high · <span style="white-space:nowrap">4–5/8 → medium</span> · ≤3/8 → low',shape='hex',tsize=18)
-arrow([(984,1432),(984,1440)],'k')
-arrow([(822,1492),(394,1492)],'p'); label(606,1492,'medium → summary of two groups · work a bit more','p')
-arrow([(1146,1492),(1570,1492)],'t',w=3); label(1360,1492,'low or 2nd medium → handoff','t')
+node(1226,1050,296,112,'db','execute_sql (candidates)','Candidates not in cache are run (5 → 6)',tsize=18)
+arrow([(1146,1086),(1222,1086)],'k')
+arrow([(1226,1134),(1150,1134)],'k')
+node(822,1194,324,96,'decision','Confidence gate','Consensus: 3/3 or ≥6/8 → high · <span style="white-space:nowrap">4–5/8 → medium</span> · ≤3/8 → low',shape='hex',tsize=18)
+arrow([(984,1182),(984,1190)],'k')
+arrow([(822,1242),(394,1242)],'p'); label(606,1242,'medium → summary of two groups · work a bit more','p')
+arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low or 2nd medium → handoff','t')
 
-node(1574,1380,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with a new budget and the same tools',tsize=19)
+node(1574,1130,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
 
-node(822,1590,324,112,'decision','Final check','Runs it if not yet run · read-only + existing tables/columns · if empty: was the forecast “empty”?',shape='hex',tsize=18)
-arrow([(984,1540),(984,1586)],'p'); label(1040,1563,'high','p')
-arrow([(822,1646),(394,1646)],'p'); label(606,1646,'failed → keep working','p')
+node(822,1340,324,112,'decision','Final check','Runs it if not yet run · read-only + existing tables/columns · if empty: was the forecast “empty”?',shape='hex',tsize=18)
+arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
+arrow([(822,1396),(394,1396)],'p'); label(606,1396,'failed → keep working','p')
 
-node(1222,1604,300,88,'io','Answer','<i>ok</i> · <i>low_confidence</i> if the teacher\'s answer fails or it is a fallback answer',shape='pill',tsize=20)
-arrow([(1146,1646),(1218,1646)],'p'); label(1184,1620,'passed','p')
-arrow([(1736,1490),(1736,1730),(984,1730),(984,1706)],'t',w=3)
-label(1460,1730,'the teacher\'s answer also goes through final check','t')
+node(1222,1348,300,100,'io','Answer','<i>ok</i> · <i>low_confidence</i> if it failed<br><i>no_answer</i> if no SQL ran',shape='pill',tsize=20)
+arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'passed','p')
+arrow([(1736,1240),(1736,1480),(984,1480),(984,1456)],'t',w=3)
+label(1530,1480,'the teacher\'s answer also goes through final check','t')
 
-# --- offline loop ---
-node(1240,1766,240,104,'offline','Experience log','forecast + prediction + real result + cost',shape='cyl',tsize=18)
-arrow([(1146,1240),(1528,1240),(1528,1800),(1484,1800)],'g',dashed=True)
-arrow([(1810,1490),(1810,1840),(1484,1840)],'g',dashed=True); label(1650,1840,'teacher solutions','g',dashed=True)
-svg.append('<polyline points="1360,1870 1360,1890" fill="none" stroke="#888" stroke-width="2.5" stroke-dasharray="7 6"/>')
-svg.append(f'<polyline points="1360,1890 232,1890" fill="none" stroke="#888" stroke-width="2.5" stroke-dasharray="7 6"/>')
-for cx in (232,608,984):
-    arrow([(cx,1890),(cx,1930)],'g',dashed=True)
-node(92,1934,280,80,'policy','Policy re-distillation','optional · handoff cases from train · promotion gate',dashed=True,tsize=18)
-node(468,1934,280,80,'world','World model training','optional · train executions, balanced',dashed=True,tsize=18)
-node(830,1934,308,80,'harness','Memory & calibration','database memory (no gold) + gate thresholds (on train)',dashed=True,tsize=18)
+# --- database memory ---
+node(822,1540,324,80,'harness','Database memory','mistake → fix records · no gold',dashed=True,tsize=18)
+# database memory: written from the answer when the question ends ok; the next question reads it in step 1
+arrow([(1300,1448),(1300,1580),(1150,1580)],'g',dashed=True); label(1300,1525,'ok + a mistake along the way','g',dashed=True)
+arrow([(984,1620),(984,1650),(1938,1650),(1938,440),(1150,440)],'g',dashed=True); label(1440,440,'step 1 of the next question','g',dashed=True)
+
+# experience log: evaluate.py writes the whole conversation after each question is scored; the agent is trained on it later
+node(1600,1500,270,100,'offline','Experience log','each question: whole conversation, answer, correct?',shape='cyl',tsize=18)
+arrow([(1522,1398),(1560,1398),(1560,1550),(1596,1550)],'g',dashed=True)
+node(70,1500,320,100,'policy','Agent training (later)','SFT → on-policy distillation → RL · train records only',dashed=True,tsize=18)
+arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'training data','g',dashed=True)
 
 # step badges
-for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(446,868,6),(472,1012,6),(1226,700,7),(822,1150,7),(822,1282,8),(1226,1300,8),(848,1444,9),(848,1590,10),(1574,1380,11)]:
+for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(822,1032,7),(1226,1050,7),(848,1194,8),(848,1340,9),(1574,1130,10)]:
     divs.append(f'<div class="bd" style="left:{bx-17}px;top:{by-17}px">{n}</div>')
 # legend
-ly=2062
-items=[('k','Tool call',False),('b','Observation to the agent',False),('p','Decision outcome',False),('t','Handoff',False),('g','Offline learning',True)]
+ly=1750
+items=[('k','Tool call',False),('b','Observation to the agent',False),('p','Decision outcome',False),('t','Handoff',False),('g','After the question',True)]
 x=66
 for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:2100px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use, asks the user when the question is ambiguous, and writes a forecast before running each SQL; the harness does the routing; real execution checks the forecast and produces a separate learning signal for every step. The world model only does a pre-check when execution is expensive. The answer is chosen by consensus among candidate groups, and everything submitted has really been executed. When stuck, the agent hands the work over to the teacher (handoff); the teacher continues where it left off, and these cases become new distillation data.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use, asks the user when the question is ambiguous, and writes a forecast before running any SQL; the real execution checks the forecast (predict). The answer is chosen among candidate groups by consensus (gate), and everything that is submitted has really been executed (settle). If it gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question's whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>

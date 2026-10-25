@@ -70,15 +70,6 @@ def test_explain_finds_missing_column(db):
     assert "town" in result["error"]
 
 
-def test_estimate_cost(db):
-    assert sqlite_db.estimate_cost(db, "SELECT * FROM items") == 150
-    assert sqlite_db.estimate_cost(db, "SELECT * FROM items WHERE id = 5") == 0
-    assert sqlite_db.estimate_cost(db, "SELECT * FROM items WHERE city = 'Boston'") == 0
-    join = "SELECT T1.city FROM items AS T1 JOIN items AS T2 ON T1.id = T2.id"
-    assert sqlite_db.estimate_cost(db, join) == 150
-    assert sqlite_db.estimate_cost(db, "SELECT town FROM items") is None
-
-
 def test_fts5_trigram_is_available():
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE VIRTUAL TABLE words USING fts5(value, tokenize = 'trigram')")

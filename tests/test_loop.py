@@ -1,4 +1,4 @@
-"""agent/loop.py testleri (aşama 6–16). Model yerine sırayla verilen sahte cevaplar kullanılır; API'ye istek gitmez."""
+"""agent/loop.py testleri: akış uçtan uca. Model yerine sırayla verilen sahte cevaplar kullanılır; API'ye istek gitmez."""
 
 import json
 
@@ -6,7 +6,12 @@ import pytest
 
 import config
 from agent import loop
-from tests.fakes import EMPTY, ONE_ROW, call_reply, execute_reply, sql_reply, submit_reply, text_reply
+from tests.fakes import EMPTY, call_reply, execute_reply, sql_reply, submit_reply, text_reply
+
+
+def teacher_gives_up():
+    """Handoff'tan sonra teacher da çözemez: yarım budget'ı boyunca tool çağırmaz, fallback answer döner."""
+    return [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS // 2)
 
 
 def test_submit_ends_the_loop(db, fake_model):
@@ -17,7 +22,7 @@ def test_submit_ends_the_loop(db, fake_model):
     assert answer["label"] == "ok"
     assert answer["tool_calls"] == 1
     assert "Table items (150 rows)" in seen[0][1]["content"]  # adım 1'in bağlamı modele gitti
-    assert answer["cost"] == pytest.approx(0.001)
+    assert answer["cost"] == pytest.approx(0.003)  # agent'ın isteği + 2 candidate'in isteği
 
 
 def test_broken_output_is_rejected_and_counted(db, fake_model):
@@ -31,12 +36,12 @@ def test_broken_output_is_rejected_and_counted(db, fake_model):
 
 def test_budget_runs_out_into_fallback_answer(db, fake_model):
     replies, _ = fake_model
-    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS
+    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["tool_calls"] == config.MAX_TOOL_CALLS
-    assert answer["label"] == "no_answer"
-    assert answer["sql"] is None
+    assert answer["tool_calls"] == config.MAX_TOOL_CALLS + config.MAX_TOOL_CALLS // 2  # teacher yarım budget alır
     assert answer["handoff_reason"] == "budget bitti"
+    assert answer["label"] == "low_confidence" and answer["sql"] == "SELECT 1"  # candidate'lerin consensus'u
+    assert answer["candidates"] == config.TOTAL_CANDIDATES
 
 
 def test_execute_sql_shows_the_real_result(db, fake_model):
@@ -71,17 +76,26 @@ def test_long_result_says_how_many_rows_are_shown(db, fake_model):
     replies += [execute_reply("SELECT id FROM items"), submit_reply("SELECT id FROM items")]
     loop.answer_question("List all items.", "", db)
     observation = seen[1][-1]["content"]
-    assert f"150 rows (first {config.SHOWN_ROWS} shown):" in observation  # aşama 10: kırpma
+    assert f"150 rows (first {config.SHOWN_ROWS} shown):" in observation  # kırpma
     assert len(observation.splitlines()) == 2 + config.SHOWN_ROWS + 1  # başlık, satırlar, surprise note
 
 
-def test_fallback_uses_last_sql_that_ran(db, fake_model):
+def test_fallback_uses_last_sql_that_ran_when_all_candidates_fail(db, fake_model):
     replies, _ = fake_model
     replies += [execute_reply("SELECT COUNT(*) FROM items")]
-    replies += [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS - 1)
+    replies += [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS - 1) + teacher_gives_up()
+    replies += [sql_reply("SELECT town FROM items")] * config.TOTAL_CANDIDATES  # hepsi hata verir
     answer = loop.answer_question("How many items?", "", db)
     assert answer["label"] == "low_confidence"
     assert answer["sql"] == "SELECT COUNT(*) FROM items"
+
+
+def test_nothing_runs_gives_no_answer(db, fake_model):
+    replies, _ = fake_model
+    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + teacher_gives_up()
+    replies += [sql_reply("SELECT town FROM items")] * config.TOTAL_CANDIDATES
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "no_answer" and answer["sql"] is None
 
 
 def test_repeated_sql_is_not_run_again(db, fake_model):
@@ -92,17 +106,9 @@ def test_repeated_sql_is_not_run_again(db, fake_model):
     answer = loop.answer_question("How many items?", "", db)
     assert answer["executions"] == 1
     assert answer["tool_calls"] == 3  # tekrar da budget'tan düştü
-    assert seen[2][-1]["content"] == "Not run again: you already made this exact call. Its result was:\n" \
+    assert seen[2][-1]["content"] == "Not run again: you already made this exact call and its result will not " \
+                                     "change. Try a different query, or submit your answer. Its result was:\n" \
                                      "Columns: COUNT(*)\n1 rows:\n150"
-
-
-def test_cache_returns_earlier_result_without_running(db, monkeypatch):
-    monkeypatch.setattr(config, "USE_WORLD_MODEL", False)
-    context = loop.Context("How many items?", "", db)
-    first = loop.run_query("SELECT COUNT(*) FROM items", None, context)
-    second = loop.run_query("SELECT COUNT(*)  FROM items", None, context)  # ör. bir candidate aynısını yazdı
-    assert first == second
-    assert context.executions == 1
 
 
 def test_wrong_forecast_gets_a_surprise_note(db, fake_model):
@@ -118,17 +124,8 @@ def test_execute_sql_without_forecast_is_rejected(db, fake_model):
     replies, seen = fake_model
     replies += [call_reply("execute_sql", {"sql": "SELECT 1"}), submit_reply("SELECT 1")]
     answer = loop.answer_question("One?", "", db)
-    assert seen[1][-1]["content"] == "Rejected: 'execute_sql' needs a non-empty value for: forecast."
+    assert seen[1][-1]["content"] == "Rejected: 'execute_sql' needs a non-empty value for: type."
     assert answer["executions"] == 1  # yalnızca final check çalıştırdı
-
-
-def test_forecast_flag_off(db, fake_model, monkeypatch):
-    monkeypatch.setattr(config, "USE_AGENT_FORECAST", False)
-    replies, seen = fake_model
-    replies += [call_reply("execute_sql", {"sql": "SELECT 1", "forecast": "bozuk"}), submit_reply("SELECT 1")]
-    answer = loop.answer_question("One?", "", db)
-    assert seen[1][-1]["content"] == "Columns: 1\n1 rows:\n1"  # istenmeyen forecast'e bakılmadı
-    assert answer["executions"] == 1 and answer["forecasts"] == 0
 
 
 def test_search_values_tool(db, fake_model):
@@ -138,29 +135,13 @@ def test_search_values_tool(db, fake_model):
     assert seen[1][-1]["content"] == "Values similar to 'Los Angles':\n- items.city = 'Los Angeles'"
 
 
-def test_every_real_run_is_logged(db, fake_model):
-    replies, _ = fake_model
-    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
-    loop.answer_question("How many items?", "", db, seed=0, question_id=7, split="dev")
-    lines = config.EXPERIENCE_LOG.read_text().splitlines()
-    assert len(lines) == 1
-    record = json.loads(lines[0])
-    assert record["question_id"] == 7 and record["split"] == "dev" and record["db_id"] == "shop"
-    assert record["sql"] == "SELECT COUNT(*) FROM items" and record["run_by"] == "agent"
-    assert record["forecast"] == ONE_ROW and record["forecast_hit"] is True
-    assert record["result"]["type"] == "rows" and record["result"]["rows"] == "1"
-    assert record["model"] == config.POLICY_MODEL and record["seed"] == 0
-
-
-
-
 def test_final_check_rejects_unexpected_empty_result(db, fake_model):
     replies, seen = fake_model
     empty_sql = "SELECT id FROM items WHERE city = 'Paris'"
-    replies += [submit_reply(empty_sql), submit_reply(empty_sql)]
+    replies += [submit_reply(empty_sql), submit_reply(empty_sql)] + teacher_gives_up()
     answer = loop.answer_question("Which items are in Paris?", "", db)
     assert seen[1][-1]["content"].startswith("Final check failed: the query returns no rows")
-    assert answer["label"] == "low_confidence"  # 2 kez geçmedi → fallback answer
+    assert answer["label"] == "low_confidence"  # 2 kez geçmedi → teacher → fallback answer
     assert answer["handoff_reason"] == "final check 2 kez geçmedi"
     assert answer["sql"] == empty_sql
 
@@ -173,15 +154,17 @@ def test_final_check_accepts_empty_result_that_was_forecast(db, fake_model):
 
 
 def test_final_check_catches_broken_sql_that_never_ran(db, fake_model):
-    replies, seen = fake_model
-    replies += [submit_reply("SELECT town FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
+    """Teacher'ın submit'i candidate'lere gitmez; final check çalışmayan SQL'i yakalar ve bu SQL cevap olmaz:
+    fallback answer'a gidilir (burada sahte candidate'ler de aynı bozuk SQL'i yazdığı için cevap yok)."""
+    replies, _ = fake_model
+    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + [submit_reply("SELECT town FROM items")]
     answer = loop.answer_question("How many items?", "", db)
-    assert seen[1][-1]["content"] == "Final check failed: Rejected before running: no such column: town"
-    assert answer["label"] == "ok" and answer["sql"] == "SELECT COUNT(*) FROM items"
+    assert answer["steps"][-1]["result"] == "Final check failed: Rejected before running: no such column: town"
+    assert answer["label"] == "no_answer" and answer["sql"] is None
+    assert answer["executions"] == 0  # pre-check'te kaldı, hiç çalışmadı
 
 
 def test_candidates_agree_high(db, fake_model, monkeypatch):
-    monkeypatch.setattr(config, "USE_CANDIDATES", True)
     replies, seen = fake_model
     replies += [call_reply("search_values", {"query": "Bostn"}),
                 submit_reply("SELECT 1"), sql_reply("SELECT 1"), sql_reply("SELECT  1")]
@@ -193,7 +176,6 @@ def test_candidates_agree_high(db, fake_model, monkeypatch):
 
 
 def test_candidates_disagree_medium_then_high(db, fake_model, monkeypatch):
-    monkeypatch.setattr(config, "USE_CANDIDATES", True)
     replies, seen = fake_model
     first_round = ["SELECT 2", "SELECT 2", "SELECT 1", "SELECT 1", "SELECT 1", "SELECT 2", "SELECT 3"]  # 1: 4/8
     replies += [submit_reply("SELECT 1")] + [sql_reply(sql) for sql in first_round]
@@ -206,9 +188,36 @@ def test_candidates_disagree_medium_then_high(db, fake_model, monkeypatch):
 
 
 def test_candidates_low_goes_to_fallback(db, fake_model, monkeypatch):
-    monkeypatch.setattr(config, "USE_CANDIDATES", True)
     replies, _ = fake_model
     replies += [submit_reply("SELECT 1")] + [sql_reply(f"SELECT {n}") for n in range(2, 9)]  # hepsi farklı
+    replies += teacher_gives_up()
     answer = loop.answer_question("One?", "", db)
     assert answer["label"] == "low_confidence" and answer["handoff_reason"] == "confidence low"
     assert answer["sql"] == "SELECT 1"  # başa başta agent'ın grubu seçilir
+
+
+def test_every_question_is_written_to_the_experience_log(db, fake_model):
+    """Kullanımda (ör. run.py) da her soru loga girer; doğru SQL olmadığı için correct boş kalır."""
+    replies, _ = fake_model
+    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
+    loop.answer_question("How many items?", "", db)
+    record = json.loads(config.EXPERIENCE_LOG.read_text())
+    assert record["split"] == "use" and record["correct"] is None and record["label"] == "ok"
+    assert record["messages"][1]["content"].endswith("Question: How many items?")  # adım 1'in bağlamı
+    assert record["messages"][-1]["content"] == "Accepted."
+
+
+def test_submitted_sql_that_does_not_run_goes_back_without_candidates(db, fake_model):
+    replies, seen = fake_model
+    replies += [submit_reply("SELECT town FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
+    answer = loop.answer_question("How many items?", "", db)
+    assert seen[1][-1]["content"] == "Submit rejected: your query does not run: Rejected before running: no such column: town"
+    assert answer["label"] == "ok" and answer["candidates"] == 2  # yalnızca ikinci submit candidate üretti
+
+
+def test_agent_is_reminded_to_submit_when_the_budget_is_almost_gone(db, fake_model):
+    replies, seen = fake_model
+    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + teacher_gives_up()
+    loop.answer_question("How many items?", "", db)
+    last_agent_turn = seen[config.MAX_TOOL_CALLS - 1][-1]["content"]  # agent'ın son isteğinden önceki not
+    assert last_agent_turn.endswith("[1 tool call(s) left. If a query you ran answers the question, call submit with it now.]")

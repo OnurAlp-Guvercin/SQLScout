@@ -1,6 +1,6 @@
 """Mini-Interact (aşama 30): BIRD-Interact'in SQLite'lı küçük sürümü; 300 belirsiz SELECT görevi, 26 veritabanı.
 Görevleri evaluate.py'nin soru biçimine çevirir. Agent'ın evidence'ı veritabanının bilgi tabanıdır (<db>_kb.jsonl);
-görevin gizlediği maddeler (deleted_knowledge) çıkarılır, onları yalnızca user simulator bilir.
+görevin gizlediği maddeler (deleted_knowledge) çıkarılır; agent onları ask_user ile öğrenebilir.
 Doğru SQL'ler (sol_sql) açık dosyada yoktur: bird.bench25@gmail.com'dan istenip MINI_INTERACT_GOLD dosyasına
 (her satır {"instance_id", "sol_sql"}) konursa okunur; yoksa sorular çalışır ama puanlanmaz."""
 
@@ -25,8 +25,6 @@ def load_questions():
             "question_id": task["instance_id"], "db_id": db_id,
             "db_path": str(config.MINI_INTERACT_DIR / db_id / f"{db_id}.sqlite"),
             "question": task["amb_user_query"], "evidence": knowledge(task), "SQL": gold.get(task["instance_id"]),
-            "ambiguity": {"user_query_ambiguity": task["user_query_ambiguity"],
-                          "knowledge_ambiguity": task["knowledge_ambiguity"]},
         })
     return questions
 

@@ -19,7 +19,6 @@ def main():
     show_steps(answer)
     print(f"\nLabel: {answer['label']} | cevabı bulan: {answer['answered_by']} | tool call: {answer['tool_calls']}"
           f" | candidate: {answer['candidates']} | gerçek çalıştırma: {answer['executions']}"
-          f" | world model: {answer['world_model_calls']}"
           f" | {answer['prompt_tokens']} + {answer['completion_tokens']} token, ${answer['cost']:.4f}")
     if answer["handoff_reason"]:
         print(f"Handoff nedeni: {answer['handoff_reason']}")

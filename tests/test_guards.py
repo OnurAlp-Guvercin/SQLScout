@@ -3,10 +3,10 @@
 from types import SimpleNamespace
 
 import config
-from agent import tools
-from harness import guards
+from agent import prompts
+from harness import execute, guards
 
-TOOLS = [tools.SUBMIT]
+TOOLS = [prompts.SUBMIT]
 
 
 def reply_with(name, arguments, text=""):
@@ -59,17 +59,29 @@ def test_only_first_of_many_calls_is_taken():
 
 def test_forecast_written_as_text_is_read():
     arguments = '{"sql": "SELECT 1", "forecast": "{\\"type\\": \\"empty\\", \\"trust\\": true}"}'
-    step = guards.read_tool_call(reply_with("execute_sql", arguments), [tools.EXECUTE_SQL_WITH_FORECAST])
+    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
     assert step["error"] is None
     assert step["args"]["forecast"] == {"type": "empty", "trust": True}
 
 
 def test_bad_forecast_names_the_wrong_fields():
-    arguments = '{"sql": "SELECT 1", "forecast": {"type": "rows", "rows": "5", "trust": "yes"}}'
-    step = guards.read_tool_call(reply_with("execute_sql", arguments), [tools.EXECUTE_SQL_WITH_FORECAST])
+    arguments = '{"sql": "SELECT 1", "forecast": {"type": "rows", "columns": [], "rows": "many", "trust": "yes"}}'
+    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
     assert step["error"].startswith("Rejected: the forecast is not valid: columns must be")
     assert "rows must be one of: 0, 1, 2-10, 11-100, 100+" in step["error"]
     assert "trust must be true or false" in step["error"]
+
+
+def test_only_type_is_required_in_the_forecast():
+    step = guards.read_tool_call(reply_with("execute_sql", '{"sql": "SELECT 1", "type": "rows"}'), [prompts.EXECUTE_SQL])
+    assert step["error"] is None and step["args"]["forecast"] == {"type": "rows"}
+
+
+def test_forecast_fields_at_top_level_and_small_format_mistakes_are_fixed():
+    arguments = '{"sql": "SELECT 1", "type": "Rows", "columns": "[\\"n\\"]", "rows": 358, "trust": "true"}'
+    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
+    assert step["error"] is None
+    assert step["args"] == {"sql": "SELECT 1", "forecast": {"type": "rows", "columns": ["n"], "rows": "100+", "trust": True}}
 
 
 def past(*steps):
@@ -93,7 +105,7 @@ def test_repeat_rules():
 
 def test_long_rows_and_cells_are_trimmed():
     rows = [(i, "x" * 150, None) for i in range(25)]
-    trimmed = guards.trim_rows(rows)
+    trimmed = execute.trim_rows(rows)
     assert len(trimmed) == config.SHOWN_ROWS
     assert trimmed[0] == ["0", "x" * config.SHOWN_CELL_CHARS + "...", "NULL"]
 

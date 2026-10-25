@@ -12,7 +12,7 @@ from agent import llm
 
 def test_request_body_uses_config_and_disables_thinking(monkeypatch):
     monkeypatch.setattr(config, "POLICY_PROVIDER", "deepinfra")
-    body = llm.request_body([{"role": "user", "content": "hi"}], None, None, None, None, None, config.POLICY_MODEL)
+    body = llm.request_body([{"role": "user", "content": "hi"}], None, None, None, config.POLICY_MODEL)
     assert body["model"] == config.POLICY_MODEL
     assert body["temperature"] == config.POLICY_TEMPERATURE
     assert body["top_p"] == config.POLICY_TOP_P
@@ -22,23 +22,23 @@ def test_request_body_uses_config_and_disables_thinking(monkeypatch):
     assert body["provider"] == {"order": ["deepinfra"], "allow_fallbacks": False}
     assert "tools" not in body
     assert "seed" not in body
-    other = llm.request_body([], None, None, None, None, None, "qwen/qwen3.6-27b")  # ör. teacher
+    other = llm.request_body([], None, None, None, "qwen/qwen3.6-27b")  # ör. teacher
     assert other["model"] == "qwen/qwen3.6-27b" and "provider" not in other
 
 
 def test_request_body_passes_given_values(monkeypatch):
     tools = [{"type": "function", "function": {"name": "submit"}}]
-    body = llm.request_body([], 0.0, 1.0, 10, tools, 7, config.POLICY_MODEL)
-    assert (body["temperature"], body["top_p"], body["max_tokens"]) == (0.0, 1.0, 10)
+    body = llm.request_body([], 0.0, tools, 7, config.POLICY_MODEL)
+    assert body["temperature"] == 0.0
     assert body["tools"] == tools
     assert "seed" not in body  # yerel sunucu seed'li istekleri batch'e almaz
     monkeypatch.setattr(config, "SEND_SEED", True)
-    assert llm.request_body([], None, None, None, None, 7, config.POLICY_MODEL)["seed"] == 7
+    assert llm.request_body([], None, None, 7, config.POLICY_MODEL)["seed"] == 7
 
 
 def test_local_server_needs_no_provider(monkeypatch):
     monkeypatch.setattr(config, "POLICY_PROVIDER", None)
-    assert "provider" not in llm.request_body([], None, None, None, None, None, config.POLICY_MODEL)
+    assert "provider" not in llm.request_body([], None, None, None, config.POLICY_MODEL)
 
 
 def test_api_key_is_read_from_env_file(tmp_path, monkeypatch):

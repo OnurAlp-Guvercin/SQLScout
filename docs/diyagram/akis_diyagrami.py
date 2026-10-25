@@ -3,7 +3,7 @@
 Kullanım (proje kökünden):
   python3 docs/diyagram/akis_diyagrami.py
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
-    --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,2230 \
+    --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,1930 \
     --screenshot=docs/PGS_akis_TR.png "file://$PWD/docs/diyagram/flow.html"
 
 Kutular node(), oklar arrow(), ok etiketleri label() ile çizilir. Koordinatlar CSS pikseli.
@@ -13,11 +13,10 @@ import os
 HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flow.html')
 import html as H
 
-W, HGT = 1960, 2230
+W, HGT = 1960, 1930
 LX = [50, 426, 802, 1178, 1554]; LW = 364
 C = {
  'policy':  ('#2f6db5', '#e8f0fb', '#f3f7fd'),
- 'world':   ('#b5730f', '#fdf0db', '#fdf8ef'),
  'harness': ('#2e7d55', '#e6f3ec', '#f2f8f4'),
  'db':      ('#b8323a', '#fbe5e6', '#fcf3f3'),
  'teacher': ('#0e7490', '#e0f2f7', '#f1f8fb'),
@@ -31,24 +30,21 @@ svg, divs = [], []
 def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-4B',
-      '<b>İlk sürüm:</b> eğitilmemiş hâliyle. <b>Eğitim (isteğe bağlı, en sonda):</b> teacher izleriyle SFT → on-policy distillation → RL',
+      '<b>Şimdi:</b> eğitilmemiş. <b>İleride:</b> harness içinde, experience log\'la SFT → on-policy distillation → RL',
       '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir; SQL çalıştırmadan önce sonucu tahmin eder (forecast)'),
-     ('world','WORLD MODEL','İlk sürüm: placeholder LLM',
-      '<b>İlk sürüm:</b> eğitilmemiş bir LLM, prompt\'la world model gibi davranır. <b>Eğitim (isteğe bağlı):</b> Qwen3.5-0.8B + LoRA, kayıtlı çalıştırmalardan',
-      '<b>Rolü:</b> çalıştırma pahalıyken pre-check; cevabın yerine geçmez'),
      ('harness','HARNESS (LLM yok)','düz Python',
-      'Context preparation, search, ask_user, pre-check, compare & log, candidate selection, gate\'ler, final check',
-      '<b>Guardrail\'ler:</b> aynı çağrı tekrarı yok · uzun sonuç kırpılır · bağlam sıkıştırılır'),
+      'Context preparation, search_values, ask_user, pre-check, compare, candidate selection, confidence gate, final check',
+      '<b>Guardrail\'ler:</b> aynı çağrı tekrarı yok · uzun sonuç kırpılır · bağlam sıkıştırılır · budget azalınca submit hatırlatması'),
      ('db','GERÇEK VERİTABANI','SQLite, salt okunur',
       '<i>execute_sql</i> tool\'u olarak sunulur',
-      '<b>Kural:</b> gönderilen her cevap gerçekten çalıştırılmış olur; prediction tek başına cevap olamaz'),
+      '<b>Kural:</b> gönderilen her cevap gerçekten çalıştırılmış olur'),
      ('teacher','TEACHER LLM','Qwen3.6-27B (4-bit, ~16–17 GB)',
-      'Yalnızca handoff\'tan sonra kullanılır. Agent\'ın <b>kaldığı yerden</b>, yeni bir budget\'la ve aynı tool\'larla devam eder',
-      '<b>Rolü:</b> zor vakayı çözer; çözümü yeni distillation verisi olur'),
+      'Yalnızca handoff\'tan sonra kullanılır. Agent\'ın <b>kaldığı yerden</b>, yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',
+      '<b>Rolü:</b> agent\'ın çözemediği vakayı çözer; çözümü eğitim verisi olur'),
     ]
-    for i,(k,t,s,a,b) in enumerate(heads):
-        x=LX[i]; stroke,fill,bg=C[k]
-        svg.append(f'<rect x="{x}" y="130" width="{LW}" height="1890" rx="14" fill="{bg}" stroke="{stroke}" stroke-opacity="0.35" stroke-width="1.5"/>')
+    for x,(k,t,s,a,b) in zip([LX[0],LX[2],LX[3],LX[4]],heads):
+        stroke,fill,bg=C[k]
+        svg.append(f'<rect x="{x}" y="130" width="{LW}" height="1530" rx="14" fill="{bg}" stroke="{stroke}" stroke-opacity="0.35" stroke-width="1.5"/>')
         svg.append(f'<rect x="{x}" y="130" width="{LW}" height="215" rx="14" fill="{fill}" stroke="{stroke}" stroke-width="2.5"/>')
         divs.append(f'<div class="hd" style="left:{x+14}px;top:142px;width:{LW-28}px">'
                     f'<div class="ht" style="color:{stroke}">{t}</div><div class="hs" style="color:{stroke}">{s}</div>'
@@ -58,7 +54,7 @@ def node(x,y,w,h,kind,title,body='',shape='rect',dashed=False,tsize=19):
     stroke,fill,_=C[kind]
     if kind in ('io',): fill='#ffffff'
     da=' stroke-dasharray="8 6"' if dashed else ''
-    f = '#ffffff' if dashed and kind in ('policy','world','harness','db') else fill
+    f = '#ffffff' if dashed and kind in ('policy','harness','db') else fill
     if shape=='rect':
         svg.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" fill="{f}" stroke="{stroke}" stroke-width="2.5"{da}/>')
     elif shape=='pill':
@@ -91,95 +87,90 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','Kullanıcı sorusu','ör. “2025’te en çok iade edilen kategori hangisi?”',shape='pill',tsize=18)
-node(822,350,324,112,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları · sorudaki kelimelerin değer eşleşmeleri · database memory',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları · database memory · 16K aşılırsa policy modeli tablo seçer',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'soru','k')
-arrow([(984,462),(984,478),(300,478),(300,496)],'b'); label(640,478,'başlangıç bağlamı','b')
+arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'başlangıç bağlamı','b')
 
-node(70,500,320,1160,'policy','','')
+node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Mevcut durumu düşün</li><li>TEK bir tool call seç</li>
 <li>Soru belirsizse kullanıcıya sor (<i>ask_user</i>)</li>
-<li>SQL çalıştırmadan önce <b>forecast</b> yaz:<br><i>result type:</i> hata / boş / dolu<br><i>result shape:</i> sütunlar + kaç satır<br>+ <i>trust</i> ya da <i>unsure</i></li>
-<li>Observation\'ı oku</li><li><i>submit</i> ya da <i>handoff</i>\'a kadar tekrarla</li></ul>
+<li>SQL çalıştırmadan önce <b>forecast</b> yaz:<br><i>type</i>: hata / boş / dolu<br>isteğe bağlı: <i>columns</i>, <i>rows</i>, <i>trust</i></li>
+<li>Observation\'ı oku</li><li><i>submit</i>\'e kadar tekrarla</li></ul>
 <p>Budget: en fazla 10 tool call</p></div>''')
 
 # handoff from agent (top)
-arrow([(390,524),(1736,524),(1736,1376)],'t',w=3)
-label(600,524,'<b>Handoff:</b> budget bitti · agent takıldı · final check 2 kez geçmedi','t')
+arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
+label(600,524,'<b>Handoff:</b> budget bitti · final check 2 kez geçmedi','t')
 
-node(822,546,324,118,'harness','search_schema · search_values · ask_user','Adım 1\'in vermediği tablo, sütun, değer ya da kullanıcının cevabı · kopyası adım 8 için saklanır',tsize=17)
-node(1226,560,296,92,'io','Kullanıcı','ask_user sorusunu cevaplar (değerlendirmede user simulator)',shape='pill',tsize=19)
+node(822,546,324,118,'harness','search_values · ask_user','Adım 1\'in göstermediği bir değerin yazılışı ya da kullanıcının cevabı · kopyası adım 7 için saklanır',tsize=17)
+node(1226,560,296,92,'io','Kullanıcı','ask_user sorusunu terminalde cevaplar',shape='pill',tsize=19)
 arrow([(1146,584),(1222,584)],'k'); label(1186,584,'ask_user','k')
 arrow([(1226,630),(1150,630)],'b'); label(1186,630,'cevap','b')
 arrow([(390,584),(818,584)],'k')
-arrow([(822,630),(394,630)],'b'); label(606,630,'tablolar, sütunlar, değerler · kullanıcının cevabı','b')
+arrow([(822,630),(394,630)],'b'); label(606,630,'değerin yazılışı · kullanıcının cevabı','b')
 
-node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN)<br>3. Daha önce çalıştı mı (cache)?<br>4. World model\'e gidilsin mi?',tsize=18)
+node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN)<br>3. Daha önce çalıştı mı (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql isteği + agent forecast','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'kontrol hatası ya da cache\'ten sonuç','b')
 
 node(1226,700,296,92,'db','execute_sql','Sorguyu çalıştırır, salt okunur',tsize=19)
 arrow([(1146,746),(1222,746)],'k'); label(1186,746,'çalıştır','k')
 
-node(446,868,324,108,'world','predict_sql','<i>Result type:</i> hata / boş / dolu<br><i>Result shape:</i> sütunlar + kaç satır<br><i>Values</i> · + her biri için confidence',tsize=19)
-arrow([(900,840),(900,920),(774,920)],'k'); label(900,876,'pahalı sorgu · budget az','k')
 
-node(446,1012,324,84,'decision','Prediction gate','Type ve shape confidence ≥ 0.9 mu?<br>(values yalnızca bilgi)',shape='hex',tsize=18)
-arrow([(608,976),(608,1008)],'k')
-arrow([(560,1096),(560,1124),(394,1124)],'b'); label(560,1124,'trusted → prediction, yalnızca ara adım için','b')
-arrow([(770,1054),(1300,1054),(1300,796)],'p'); label(1040,1054,'untrusted ya da %5 audit → çalıştır','p')
 
-node(822,1150,324,104,'harness','Compare & log','Gerçek sonuç ↔ agent forecast ↔ world model prediction · tutmadıysa <b>surprise note</b>',tsize=18)
-arrow([(1440,792),(1440,1200),(1150,1200)],'k')
-arrow([(822,1226),(394,1226)],'b'); label(606,1226,'gerçek sonuç + surprise note','b')
+node(822,900,324,104,'harness','Compare','Gerçek sonuç ↔ agent forecast · tutmadıysa <b>surprise note</b>',tsize=18)
+arrow([(1440,792),(1440,950),(1150,950)],'k')
+arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç + surprise note','b')
 
-node(822,1282,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (prompt: soru + evidence + kullanıcı cevapları + şema + search notes; agent\'ın SQL\'i yok) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
-arrow([(390,1330),(818,1330)],'k'); label(606,1330,'submit','k')
+node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (prompt: soru + evidence + kullanıcı cevapları + şema + search notes; agent\'ın SQL\'i yok) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
+arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
+arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL çalışmıyor → hata','b')
 
-node(1226,1300,296,112,'db','execute_sql (candidate\'ler)','Cache\'te olmayan candidate\'ler çalıştırılır · pahalı sorguda önce world model eler (5 → 6)',tsize=18)
-arrow([(1146,1336),(1222,1336)],'k')
-arrow([(1226,1384),(1150,1384)],'k')
-node(822,1444,324,96,'decision','Confidence gate','Consensus: 3/3 ya da ≥6/8 → high · 4–5/8 → medium · ≤3/8 → low',shape='hex',tsize=18)
-arrow([(984,1432),(984,1440)],'k')
-arrow([(822,1492),(394,1492)],'p'); label(606,1492,'medium → iki grubun özeti · biraz daha çalış','p')
-arrow([(1146,1492),(1570,1492)],'t',w=3); label(1360,1492,'low ya da 2. kez medium → handoff','t')
+node(1226,1050,296,112,'db','execute_sql (candidate\'ler)','Cache\'te olmayan candidate\'ler çalıştırılır (5 → 6)',tsize=18)
+arrow([(1146,1086),(1222,1086)],'k')
+arrow([(1226,1134),(1150,1134)],'k')
+node(822,1194,324,96,'decision','Confidence gate','Consensus: 3/3 ya da ≥6/8 → high · 4–5/8 → medium · ≤3/8 → low',shape='hex',tsize=18)
+arrow([(984,1182),(984,1190)],'k')
+arrow([(822,1242),(394,1242)],'p'); label(606,1242,'medium → iki grubun özeti · biraz daha çalış','p')
+arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low ya da 2. kez medium → handoff','t')
 
-node(1574,1380,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yeni budget\'la ve aynı tool\'larla devam eder',tsize=19)
+node(1574,1130,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
 
-node(822,1590,324,112,'decision','Final check','Çalıştırılmadıysa çalıştırır · salt okuma + var olan tablo/sütun · boşsa: forecast “boş” muydu?',shape='hex',tsize=18)
-arrow([(984,1540),(984,1586)],'p'); label(1040,1563,'high','p')
-arrow([(822,1646),(394,1646)],'p'); label(606,1646,'geçmedi → çalışmaya devam','p')
+node(822,1340,324,112,'decision','Final check','Çalıştırılmadıysa çalıştırır · salt okuma + var olan tablo/sütun · boşsa: forecast “boş” muydu?',shape='hex',tsize=18)
+arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
+arrow([(822,1396),(394,1396)],'p'); label(606,1396,'geçmedi → çalışmaya devam','p')
 
-node(1222,1604,300,88,'io','Cevap','<i>ok</i> · teacher\'ın cevabı geçmezse ya da fallback answer ise <i>low_confidence</i>',shape='pill',tsize=20)
-arrow([(1146,1646),(1218,1646)],'p'); label(1184,1620,'geçti','p')
-arrow([(1736,1490),(1736,1730),(984,1730),(984,1706)],'t',w=3)
-label(1460,1730,'teacher\'ın cevabı da final check\'ten geçer','t')
+node(1222,1348,300,100,'io','Cevap','<i>ok</i> · geçmediyse <i>low_confidence</i><br>çalışan SQL yoksa <i>no_answer</i>',shape='pill',tsize=20)
+arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'geçti','p')
+arrow([(1736,1240),(1736,1480),(984,1480),(984,1456)],'t',w=3)
+label(1530,1480,'teacher\'ın cevabı da final check\'ten geçer','t')
 
-# --- offline loop ---
-node(1240,1766,240,104,'offline','Experience log','forecast + prediction + gerçek sonuç + maliyet',shape='cyl',tsize=18)
-arrow([(1146,1240),(1528,1240),(1528,1800),(1484,1800)],'g',dashed=True)
-arrow([(1810,1490),(1810,1840),(1484,1840)],'g',dashed=True); label(1650,1840,'teacher çözümleri','g',dashed=True)
-svg.append('<polyline points="1360,1870 1360,1890" fill="none" stroke="#888" stroke-width="2.5" stroke-dasharray="7 6"/>')
-svg.append(f'<polyline points="1360,1890 232,1890" fill="none" stroke="#888" stroke-width="2.5" stroke-dasharray="7 6"/>')
-for cx in (232,608,984):
-    arrow([(cx,1890),(cx,1930)],'g',dashed=True)
-node(92,1934,280,80,'policy','Policy re-distillation','isteğe bağlı · train\'deki handoff vakaları · promotion gate',dashed=True,tsize=18)
-node(468,1934,280,80,'world','World model training','isteğe bağlı · train çalıştırmaları, dengeli',dashed=True,tsize=18)
-node(830,1934,308,80,'harness','Memory & calibration','database memory (gold yok) + gate eşikleri (train ile)',dashed=True,tsize=18)
+# --- database memory ---
+node(822,1540,324,80,'harness','Database memory','hata → düzeltme kaydı · gold yok',dashed=True,tsize=18)
+# database memory: soru ok bitince cevaptan yazılır, sonraki soru adım 1'de okur
+arrow([(1300,1448),(1300,1580),(1150,1580)],'g',dashed=True); label(1300,1525,'ok + yolda hata','g',dashed=True)
+arrow([(984,1620),(984,1650),(1938,1650),(1938,440),(1150,440)],'g',dashed=True); label(1440,440,'sonraki sorunun adım 1\'i','g',dashed=True)
+
+# experience log: evaluate.py her soru puanlandıktan sonra bütün konuşmayı yazar; agent ileride bununla eğitilir
+node(1600,1500,270,100,'offline','Experience log','her soru: bütün konuşma, cevap, doğru mu',shape='cyl',tsize=18)
+arrow([(1522,1398),(1560,1398),(1560,1550),(1596,1550)],'g',dashed=True)
+node(70,1500,320,100,'policy','Agent eğitimi (ileride)','SFT → on-policy distillation → RL · yalnızca train kayıtları',dashed=True,tsize=18)
+arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'eğitim verisi','g',dashed=True)
 
 # step badges
-for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(446,868,6),(472,1012,6),(1226,700,7),(822,1150,7),(822,1282,8),(1226,1300,8),(848,1444,9),(848,1590,10),(1574,1380,11)]:
+for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(822,1032,7),(1226,1050,7),(848,1194,8),(848,1340,9),(1574,1130,10)]:
     divs.append(f'<div class="bd" style="left:{bx-17}px;top:{by-17}px">{n}</div>')
 # legend
-ly=2062
-items=[('k','Tool call',False),('b','Agent\'a dönen observation',False),('p','Karar sonucu',False),('t','Handoff',False),('g','Offline learning',True)]
+ly=1750
+items=[('k','Tool call',False),('b','Agent\'a dönen observation',False),('p','Karar sonucu',False),('t','Handoff',False),('g','Soru bittikten sonra',True)]
 x=66
 for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:2100px;width:1830px"><b>Ana fikir:</b> agent hangi tool'u kullanacağına kendisi karar verir, soru belirsizse kullanıcıya sorar ve her SQL'i çalıştırmadan önce forecast yazar; yönlendirmeyi harness yapar; gerçek çalıştırma forecast'i denetler ve her adım için ayrı bir öğrenme sinyali üretir. World model yalnızca çalıştırma pahalıyken pre-check yapar. Cevap candidate grupları arasından consensus ile seçilir ve gönderilen her şey gerçekten çalıştırılmış olur. Takılırsa agent işi teacher'a devreder (handoff); teacher kaldığı yerden devam eder ve bu vakalar yeni distillation verisi olur.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool'u kullanacağına kendisi karar verir, soru belirsizse kullanıcıya sorar ve her SQL'i çalıştırmadan önce forecast yazar; gerçek çalıştırma forecast'i denetler (predict). Cevap candidate grupları arasından consensus ile seçilir (gate) ve gönderilen her şey gerçekten çalıştırılmış olur (settle). Takılırsa agent işi teacher'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log'a yazılır; agent ileride bununla eğitilir.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>

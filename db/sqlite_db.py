@@ -1,7 +1,6 @@
-"""SQLite veritabanı katmanı: execute, explain, estimate_cost. Şemayı ve column profile'ları sqlite_schema.py okur.
-Akışta adım 5 (pre-check) ve adım 7 (gerçek çalıştırma). Veritabanı hep salt okunur açılır."""
+"""SQLite veritabanı katmanı: execute, explain. Şemayı ve column profile'ları sqlite_schema.py okur.
+Akışta adım 5 (pre-check) ve adım 6 (gerçek çalıştırma). Veritabanı hep salt okunur açılır."""
 
-import functools
 import hashlib
 import sqlite3
 import time
@@ -84,37 +83,3 @@ def explain(db_path, sql):
     finally:
         conn.close()
     return {"ok": True, "error": None, "plan": plan}
-
-
-def estimate_cost(db_path, sql):
-    """Tahmini taranacak satır sayısı: tam taranan her tablonun satır sayısı toplanır. SQL hatalıysa None."""
-    conn = connect(db_path)
-    try:
-        table_of_rootpage = dict(conn.execute("SELECT rootpage, tbl_name FROM sqlite_master WHERE rootpage > 0"))
-        program = conn.execute("EXPLAIN " + sql).fetchall()
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-
-    # EXPLAIN QUERY PLAN tablo yerine takma adı (T1) yazar; bu yüzden bytecode okunur.
-    # OpenRead bir cursor'u bir tabloya ya da onun indeksine bağlar. O cursor'da Rewind ya da Last
-    # varsa tablo baştan sona taranıyordur. İndeksli aramalarda bunlar yoktur; küçük oldukları için sayılmazlar.
-    table_of_cursor = {}
-    total = 0
-    for row in program:
-        opcode, cursor, rootpage = row[1], row[2], row[3]
-        if opcode == "OpenRead" and rootpage in table_of_rootpage:
-            table_of_cursor[cursor] = table_of_rootpage[rootpage]
-        elif opcode in ("Rewind", "Last") and cursor in table_of_cursor:
-            total += table_row_count(db_path, table_of_cursor[cursor])
-    return total
-
-
-@functools.lru_cache(maxsize=None)
-def table_row_count(db_path, table):
-    conn = connect(db_path)
-    try:
-        return conn.execute(f"SELECT COUNT(*) FROM {quote(table)}").fetchone()[0]
-    finally:
-        conn.close()

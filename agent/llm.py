@@ -1,6 +1,6 @@
 """Modele istek atar ve cevabı döndürür. İstekler yerel mlx_lm.server'a ya da OpenRouter API'sine gider;
 ikisi de aynı (OpenAI) biçimi konuşur, adres config.py'de.
-Policy, candidate'ler, teacher, user simulator ve placeholder world model hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
+Policy, candidate'ler ve teacher hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
 
 import functools
 import http.client
@@ -17,10 +17,10 @@ from tokenizers import Tokenizer
 import config
 
 
-def chat(messages, temperature=None, top_p=None, max_tokens=None, tools=None, seed=None, model=None):
+def chat(messages, temperature=None, tools=None, seed=None, model=None):
     """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa policy modeli.
     Döner: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
-    body = request_body(messages, temperature, top_p, max_tokens, tools, seed, model or config.POLICY_MODEL)
+    body = request_body(messages, temperature, tools, seed, model or config.POLICY_MODEL)
     headers = {"Content-Type": "application/json"}
     key = api_key()
     if key:
@@ -44,13 +44,13 @@ def chat(messages, temperature=None, top_p=None, max_tokens=None, tools=None, se
     }
 
 
-def request_body(messages, temperature, top_p, max_tokens, tools, seed, model):
+def request_body(messages, temperature, tools, seed, model):
     body = {
         "model": model,
         "messages": messages,
         "temperature": config.POLICY_TEMPERATURE if temperature is None else temperature,
-        "top_p": config.POLICY_TOP_P if top_p is None else top_p,
-        "max_tokens": max_tokens or config.MAX_NEW_TOKENS,
+        "top_p": config.POLICY_TOP_P,
+        "max_tokens": config.MAX_NEW_TOKENS,
         # Thinking modu kapalı: ilki OpenRouter, ikincisi yerel mlx_lm.server için.
         "reasoning": {"enabled": False},
         "chat_template_kwargs": {"enable_thinking": False},

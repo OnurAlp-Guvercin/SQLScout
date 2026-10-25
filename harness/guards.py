@@ -1,13 +1,12 @@
-"""Guardrail'ler: harness'ın agent'ı küçük modellerin tipik hatalarından koruyan kuralları (her adım).
-Bozuk çıktının reddi (aşama 6), aynı çağrının tekrarı (aşama 9), uzun sonucun kırpılması (aşama 10),
-bağlamın sıkıştırılması (aşama 11)."""
+"""Guardrail'ler: harness'ın agent'ı küçük modellerin tipik hatalarından koruyan kuralları (her adım): bozuk çıktının
+reddi, aynı çağrının tekrarı, bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/execute.py'de (trim_rows)."""
 
 import json
 import uuid
 
 import config
 from agent import llm
-from harness import compare, precheck
+from harness import execute
 
 SHORTENED = "[Old result, shortened] "
 
@@ -44,17 +43,15 @@ def read_tool_call(reply, tools):
         step["arguments"] = "{}"
         step["error"] = f"Rejected: the arguments of '{step['tool']}' are not a valid JSON object."
         return step
-    if isinstance(args.get("forecast"), str):  # küçük modeller iç içe nesneyi bazen metin olarak yazar
-        try:
-            args["forecast"] = json.loads(args["forecast"])
-        except json.JSONDecodeError:
-            pass
-    missing = [name for name in schema["required"] if is_empty(args.get(name))]
+    if step["tool"] == "execute_sql":  # forecast alanları tek bir nesnede toplanır: args = {"sql", "forecast"}
+        args = {"sql": args.get("sql"), "forecast": execute.read_forecast(args)}
+    fields = {**args.get("forecast", {}), **args}  # execute_sql'in zorunlu "type" alanı forecast'in içinde
+    missing = [name for name in schema["required"] if is_empty(fields.get(name))]
     if missing:
         step["error"] = f"Rejected: '{step['tool']}' needs a non-empty value for: {', '.join(missing)}."
         return step
-    if "forecast" in schema["required"]:
-        problem = compare.forecast_error(args["forecast"])
+    if step["tool"] == "execute_sql":
+        problem = execute.forecast_error(args["forecast"])
         if problem:
             step["error"] = f"Rejected: the forecast is not valid: {problem}."
             return step
@@ -72,7 +69,8 @@ def is_repeat(step, context):
 
 
 def repeat_note(step, context):
-    return "Not run again: you already made this exact call. Its result was:\n" + previous_result(step, context)
+    return ("Not run again: you already made this exact call and its result will not change. Try a different query, "
+            "or submit your answer. Its result was:\n" + previous_result(step, context))
 
 
 def previous_result(step, context):
@@ -84,44 +82,12 @@ def previous_result(step, context):
         if old["tool"] != step["tool"] or not old["args"]:
             continue
         if step["tool"] == "execute_sql":
-            same = precheck.sql_key(old["args"]["sql"]) == precheck.sql_key(step["args"]["sql"])
+            same = execute.sql_key(old["args"]["sql"]) == execute.sql_key(step["args"]["sql"])
         else:
             same = old["args"] == step["args"]
         if same:
             return old["result"]
     return None
-
-
-def format_result(result):
-    """Gerçek sonucu agent'ın okuyacağı metne çevirir: sütunlar, satır sayısı ve kırpılmış satırlar ya da hata."""
-    if not result["ok"]:
-        return f"Error: {result['error']}"
-    lines = [f"Columns: {', '.join(result['columns'])}"]
-    if result["row_count"] == 0:
-        lines.append("No rows: the result is empty.")
-        return "\n".join(lines)
-    rows = trim_rows(result["rows"])
-    if len(rows) < result["row_count"]:
-        lines.append(f"{result['row_count']} rows (first {len(rows)} shown):")
-    else:
-        lines.append(f"{result['row_count']} rows:")
-    for row in rows:
-        lines.append(" | ".join(row))
-    return "\n".join(lines)
-
-
-def trim_rows(rows):
-    """Agent en fazla SHOWN_ROWS satır görür; uzun hücreler SHOWN_CELL_CHARS karakterde kesilir."""
-    trimmed = []
-    for row in rows[:config.SHOWN_ROWS]:
-        cells = []
-        for value in row:
-            text = "NULL" if value is None else str(value)
-            if len(text) > config.SHOWN_CELL_CHARS:
-                text = text[:config.SHOWN_CELL_CHARS] + "..."
-            cells.append(text)
-        trimmed.append(cells)
-    return trimmed
 
 
 def compress(context):

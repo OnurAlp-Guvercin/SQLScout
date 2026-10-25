@@ -1,12 +1,18 @@
-"""SQLite veritabanının yapısını okur: tablolar, sütunlar, foreign key'ler ve column profile'ları.
+"""SQLite veritabanının yapısını okur: tablolar, sütunlar, foreign key'ler, column profile'ları ve sütun açıklamaları.
 Akışta adım 1 (başlangıç bağlamı) bunu kullanır. Veritabanı salt okunur açılır."""
+
+import csv
+import io
+import json
+from pathlib import Path
 
 import config
 from db.sqlite_db import connect, quote
 
 
 def schema(db_path):
-    """Her tablo için: ad, sütunlar (ad, tip, primary key mi) ve foreign key'ler."""
+    """Veritabanının iskeleti; her tablo için: ad, sütunlar (ad, tip, primary key mi) ve foreign key'ler.
+    Ör. [{"name": "gender", "columns": [{"name": "id", "type": "INTEGER", "primary_key": True}, ...], "foreign_keys": []}]"""
     conn = connect(db_path)
     try:
         names = [row[0] for row in conn.execute(
@@ -34,7 +40,7 @@ def show_name(name):
 
 
 def primary_key_of(conn, table):
-    # Foreign key hedef sütun yazmadan tanımlanmışsa hedef tablonun primary key'ini gösterir.
+    """Tablonun primary key sütununun adı, yoksa None. Hedef sütunu yazılmamış foreign key'ler buna bağlanır."""
     for info in conn.execute(f"PRAGMA table_info({quote(table)})"):
         if info[5] == 1:
             return info[1]
@@ -42,7 +48,8 @@ def primary_key_of(conn, table):
 
 
 def profile(db_path, table):
-    """Tablonun her sütunu için column profile."""
+    """Tablonun satır sayısı ve her sütununun özeti (profile_column). Döner: {"table", "row_count", "columns"}.
+    Adım 1 bunu her veritabanı için bir kez hesaplatır ve data/prepared/<db_id>/profiles.json'a yazar."""
     conn = connect(db_path)
     try:
         name = quote(table)
@@ -57,13 +64,14 @@ def profile(db_path, table):
 
 
 def profile_column(conn, table, column, column_type, total):
+    """Tek bir sütunun özeti: NULL oranı, farklı değer sayısı, en sık değerler ([değer, kaç kez]), sayısalsa min ve max.
+    En sık PROFILE_TOP_VALUES değer alınır; farklı değer sayısı bundan azsa hepsi alınmış olur (all_values_shown).
+    Ör. {"name": "gender", "distinct": 3, "all_values_shown": True, "top_values": [["Female", 1], ...], "min": None}"""
     col = quote(column)
     non_null, distinct = conn.execute(f"SELECT COUNT({col}), COUNT(DISTINCT {col}) FROM {table}").fetchone()
-    all_values_shown = distinct <= config.PROFILE_ALL_VALUES_MAX
-    limit = distinct if all_values_shown else config.PROFILE_TOP_VALUES
     top_values = conn.execute(
         f"SELECT {col}, COUNT(*) AS n FROM {table} WHERE {col} IS NOT NULL "
-        f"GROUP BY {col} ORDER BY n DESC, {col} LIMIT ?", (limit,)).fetchall()
+        f"GROUP BY {col} ORDER BY n DESC, {col} LIMIT ?", (config.PROFILE_TOP_VALUES,)).fetchall()
     low, high = conn.execute(
         f"SELECT MIN({col}), MAX({col}) FROM {table} WHERE typeof({col}) IN ('integer', 'real')").fetchone()
     return {
@@ -71,8 +79,59 @@ def profile_column(conn, table, column, column_type, total):
         "type": column_type,
         "null_ratio": (total - non_null) / total if total else None,
         "distinct": distinct,
-        "all_values_shown": all_values_shown,
+        "all_values_shown": distinct <= config.PROFILE_TOP_VALUES,
         "top_values": [[value, count] for value, count in top_values],
         "min": low,
         "max": high,
     }
+
+
+def descriptions(db_path):
+    """Sütun açıklamaları: BIRD'de veritabanının yanındaki database_description/<tablo>.csv dosyaları,
+    Mini-Interact'te <db>_column_meaning_base.json. Döner: {tablo: {sütun: açıklama}}, adlar küçük harfle. Açıklama dosyası yoksa boş."""
+    folder = Path(db_path).parent / "database_description"
+    found = {}
+    for csv_path in sorted(folder.glob("*.csv")):
+        columns = {}
+        for row in csv.DictReader(io.StringIO(read_text(csv_path))):
+            name = clean(row.get("original_column_name")).lower()
+            if name:
+                columns[name] = describe_row(row)
+        found[csv_path.stem.lower()] = columns
+
+    meanings = Path(db_path).with_name(f"{Path(db_path).stem}_column_meaning_base.json")
+    if meanings.exists():  # Mini-Interact: {"db|tablo|sütun": açıklama}; JSON sütunlarında alanların anlamı da var
+        for key, meaning in json.loads(meanings.read_text()).items():
+            _, table, column = key.split("|")
+            if isinstance(meaning, dict):
+                fields = "; ".join(f"{name}: {text}" for name, text in meaning["fields_meaning"].items())
+                meaning = f"{meaning['column_meaning']} Fields: {fields}"
+            found.setdefault(table.lower(), {})[column.lower()] = clean(meaning)
+    return found
+
+
+def read_text(path):
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252")  # BIRD'deki birkaç CSV Windows kodlamasıyla kaydedilmiş
+
+
+def describe_row(row):
+    original = clean(row.get("original_column_name"))
+    full_name = clean(row.get("column_name"))
+    meaning = clean(row.get("column_description"))
+    value_description = clean(row.get("value_description"))
+    parts = []
+    if full_name and full_name.lower() != original.lower():
+        parts.append(full_name)
+    if meaning and meaning.lower() not in (original.lower(), full_name.lower()):
+        parts.append(meaning)
+    if value_description:
+        parts.append(f"value description: {value_description}")
+    return ". ".join(parts)
+
+
+def clean(text):
+    return " ".join((text or "").split())

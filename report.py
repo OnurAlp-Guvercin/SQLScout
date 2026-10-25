@@ -1,12 +1,12 @@
 """Sonuç dosyalarının özeti. evaluate.py her deneyin sonunda summary'yi yazdırır. Birden çok dosya verilince
-(ör. seed'ler ve ablation'lar) her dosya için tek satırlık bir tablo yazar: python report.py results/asama29_*.jsonl"""
+(ör. seed'ler) her dosya için tek satırlık bir tablo yazar: python report.py results/asama29_*.jsonl"""
 
 import json
 import sys
 
 
 def summary(rows, wall_seconds):
-    """Bir deneyin özeti: doğruluk, süre, maliyet, tool call ve çalıştırma sayıları, handoff, ask_user, world model."""
+    """Bir deneyin özeti: doğruluk, süre, maliyet, tool call ve çalıştırma sayıları, handoff, ask_user."""
     scored = [row for row in rows if row["correct"] is not None]
     correct = sum(row["correct"] for row in scored)
     cost = sum(row.get("cost") or 0 for row in rows)
@@ -24,7 +24,7 @@ def summary(rows, wall_seconds):
     searches = 0
     for row in rows:
         for step in row.get("steps", []):
-            if step["tool"] in ("search_schema", "search_values"):
+            if step["tool"] == "search_values":
                 searches += 1
     forecasts = sum(row.get("forecasts", 0) for row in rows)
     hits = sum(row.get("forecast_hits", 0) for row in rows)
@@ -33,12 +33,7 @@ def summary(rows, wall_seconds):
     teacher = sum(row.get("answered_by") == "teacher" for row in rows)
     handoffs = sum(bool(row.get("handoff_reason")) for row in rows)
     asks = sum(len(row.get("clarifications", [])) for row in rows)
-    world_model_calls = sum(row.get("world_model_calls", 0) for row in rows)
-    print(f"Handoff noktası: {handoffs} (teacher'ın cevabı: {teacher}) | ask_user: {asks} | world model'e gidiş: "
-          f"{world_model_calls}")
-    coins = [row["coins_left"] for row in rows if row.get("coins_left") is not None]
-    if coins:
-        print(f"Ortalama kalan bird-coin: {sum(coins) / len(coins):.1f}")
+    print(f"Handoff noktası: {handoffs} (teacher'ın cevabı: {teacher}) | ask_user: {asks}")
     for row in rows:
         if "error" in row:
             print(f"  soru {row['question_id']} hata: {row['error'][:200]}")
@@ -47,21 +42,17 @@ def summary(rows, wall_seconds):
 
 
 def table(paths):
-    """Her sonuç dosyası bir satır: deney, seed, kapalı flag'ler, doğruluk, ortalama gerçek çalıştırma ve tool call."""
-    print("deney | seed | kapalı flag'ler | doğruluk | çalıştırma | tool call | world model")
+    """Her sonuç dosyası bir satır: deney, seed, doğruluk, ortalama gerçek çalıştırma ve tool call."""
+    print("deney | seed | doğruluk | çalıştırma | tool call")
     for path in paths:
         lines = open(path).read().splitlines()
         header, rows = json.loads(lines[0]), [json.loads(line) for line in lines[1:]]
-        off = [name for name, value in header["config"].items() if name.startswith("USE_") and value is False]
-        if header["config"].get("SIMULATE_COST"):
-            off.append("(SIMULATE_COST açık)")
         scored = [row for row in rows if row["correct"] is not None]
         accuracy = f"{100 * sum(row['correct'] for row in scored) / len(scored):.1f}%" if scored else "-"
         executions = sum(row.get("executions", 0) for row in rows) / len(rows)
         calls = sum(row.get("tool_calls", 0) for row in rows) / len(rows)
-        world_model = sum(row.get("world_model_calls", 0) for row in rows) / len(rows)
-        print(f"{header['experiment']} | {header['seed']} | {', '.join(off) or '-'} | {accuracy} ({len(scored)} soru) | "
-              f"{executions:.1f} | {calls:.1f} | {world_model:.1f}")
+        print(f"{header['experiment']} | {header['seed']} | {accuracy} ({len(scored)} soru) | "
+              f"{executions:.1f} | {calls:.1f}")
 
 
 if __name__ == "__main__":
