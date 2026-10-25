@@ -56,18 +56,12 @@ ASK_USER = {"type": "function", "function": {
                    "properties": {"question": {"type": "string", "description": "The clarification question."}}},
 }}
 
-# Adım 4: agent sorgunun sonucunu çalıştırmadan önce tahmin eder (forecast): type, columns, rows, trust.
 EXECUTE_SQL = {"type": "function", "function": {
     "name": "execute_sql",
-    "description": "Run a read-only SQLite query on the database and see its result. Before it runs, forecast the "
-                   "result: type ('error', 'empty' or 'rows'); if 'rows', also give columns (the column names you expect) "
-                   "and rows (how many rows you expect) when you can.",
-    "parameters": {"type": "object", "required": ["sql", "type"], "properties": {
-        "sql": {"type": "string", "description": "The SQLite query to run."},
-        "type": {"type": "string", "enum": ["error", "empty", "rows"], "description": "Forecast: the result type."},
-        "columns": {"type": "array", "items": {"type": "string"}, "description": "Forecast: the column names."},
-        "rows": {"type": "string", "enum": config.ROW_RANGES, "description": "Forecast: the number of rows."},
-        "trust": {"type": "boolean", "description": "true if you are confident in the forecast, false if not."}}},
+    "description": "Run a read-only SQLite query on the database and see its result: the columns, the number of rows "
+                   "and the first rows, or the error message.",
+    "parameters": {"type": "object", "required": ["sql"],
+                   "properties": {"sql": {"type": "string", "description": "The SQLite query to run."}}},
 }}
 
 SUBMIT = {"type": "function", "function": {

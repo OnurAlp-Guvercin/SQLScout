@@ -1,7 +1,8 @@
 """Agent loop: akışın kendisi. Agent her turda tek bir tool çağırır; harness onu çalıştırır ve sonucu agent'a geri
 verir. Her tool bir dal, her dal tek bir dosyaya gider: search_values ve ask_user → harness/tools.py (adım 3),
 execute_sql → harness/execute.py (adım 4–6), submit → harness/answer.py (adım 7–9).
-Agent takılırsa harness işi teacher'a verir (adım 10): teacher aynı döngüyle, yarım budget'la devam eder.
+Agent takılırsa (budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci medium, final check 2 kez geçmedi)
+harness işi teacher'a verir (adım 10): teacher aynı döngüyle, yarım budget'la devam eder.
 Soru bitince database memory ve experience log yazılır."""
 
 import json
@@ -53,24 +54,30 @@ def write_experience(context, result, correct, tags):
 
 
 def run_steps(context):
-    """Bir budget boyunca döner. Döner: kabul edilen cevap, ya da takılınca None (nedeni context.handoff_reason)."""
+    """Bir budget boyunca döngü. Return: kabul edilen cevap, ya da takılınca None (nedeni context.handoff_reason)."""
     context.calls_left = context.budget()  # agent 10, teacher 5
     while context.calls_left > 0:
         guards.compress(context)  # konuşma 32K token'ı aştıysa en eski sonuçlar kısalır
         step = next_step(context)  # adım 2
         context.calls_left -= 1
         context.calls += 1
+        earlier = guards.earlier_calls(step, context)
 
-        if step["error"]:  # tool call okunamadı: reddedilir, hata agent'a döner
+        if step["error"]:  # tool call okunamadı: reddedilir, hata agent'a gider
             result = step["error"]
-        elif guards.is_repeat(step, context):  # aynı çağrı (submit hariç): çalıştırılmaz, önceki sonuç döner
-            result = guards.repeat_note(step, context)
+        elif len(earlier) >= config.MAX_REPEATS:  # aynı çağrının 3. tekrarı: agent takıldı
+            context.add(step, "Handoff: the same call was repeated too many times.")
+            if not context.teacher:
+                context.handoff_reason = "aynı çağrı 3 kez tekrarlandı"
+            return None
+        elif earlier:  # aynı çağrı (submit hariç): çalıştırılmaz, önceki sonuç agent'a gider
+            result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
             result = tools.search_values(step["args"]["query"], context)  # adım 3
         elif step["tool"] == "ask_user":
             result = tools.ask_user(step["args"]["question"], context)  # adım 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(step["args"]["sql"], step["args"]["forecast"], context)  # adım 4–6
+            result = execute.run_query(step["args"]["sql"], context)  # adım 4–6
         elif context.teacher:  # teacher'ın submit'i candidate'lere gitmez, doğrudan final check'e gider
             return teacher_submit(step, context)
         else:
@@ -85,9 +92,11 @@ def run_steps(context):
             result = outcome["note"]  # medium note ya da final check notu → adım 2
 
         context.add(step, result)
-        if 0 < context.calls_left <= config.BUDGET_WARNING:  # yalnızca modele giden mesaja; adım kaydına değil
-            context.messages[-1]["content"] += (f"\n[{context.calls_left} tool call(s) left. If a query you ran "
-                                                "answers the question, call submit with it now.]")
+        if context.calls_left > 0:  # kalan budget yalnızca modele giden mesaja eklenir, adım kaydına değil
+            note = f"\n[{context.calls_left} tool call(s) left."
+            if context.calls_left <= config.BUDGET_WARNING:
+                note += " If a query you ran answers the question, call submit with it now."
+            context.messages[-1]["content"] += note + "]"
 
     if not context.teacher:
         context.handoff_reason = "budget bitti"
@@ -111,7 +120,7 @@ def start_teacher(context):
 
 def teacher_submit(step, context):
     """Teacher'ın cevabı final check'ten geçerse ok. Geçmezse tekrar denenmez: SQL çalışıyorsa low_confidence ile
-    döner (ör. beklenmeyen boş sonuç), hiç çalışmıyorsa fallback answer."""
+    return edilir (ör. beklenmeyen boş sonuç), hiç çalışmıyorsa fallback answer."""
     sql = step["args"]["sql"]
     note = answer.final_check(sql, context)
     context.add(step, note or "Accepted.")

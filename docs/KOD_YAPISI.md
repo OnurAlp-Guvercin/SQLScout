@@ -24,7 +24,7 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
 | `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, database memory, evidence, soru). Bağlam 16K'yı aşarsa `select_tables`: soruya gereken tabloları LLM seçer. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
 | `harness/tools.py` | Adım 3 | `search_values`: değer index'inde arama (FTS5 trigram + `difflib`). `ask_user`: soruyu terminaldeki kişiye sorar (`run.py`'de de `evaluate.py`'de de; aynı anda gelen sorular tek tek). Bulunanların kopyası search notes'a / clarification'lara yazılır |
-| `harness/execute.py` | Adım 4–6 | `run_query`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`). `run`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır). `read_forecast` ve `forecast_error`: forecast'i okur ve biçimini denetler. `surprise_note`: forecast'le karşılaştırma |
+| `harness/execute.py` | Adım 4–6 | `run_query`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`). `run`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). `remember_mistake`: sorudaki ilk hata (memory için) |
 | `harness/answer.py` | Adım 7–9 | `finish`: agent'ın `submit`'i. `candidates`: ek SQL'ler (`write_sql`), gruplama, seçim. `confidence`: confidence gate. `medium_note`. `final_check`. `consensus_answer`: fallback answer için candidate consensus'u |
 | `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `is_repeat`: aynı çağrının tekrarı. `compress`: bağlamın sıkıştırılması |
 | `harness/memory.py` | Adım 1, soru bittikten sonra | Database memory'yi okur (TF-IDF ile en benzer 3 kayıt) ve yazar: `experience/memory/<db_id>.jsonl` |
@@ -44,24 +44,18 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call biçimiyle yazılır. Her çağrı budget'tan bir düşer; reddedilen ve biçimi bozuk çağrılar da.
 
-| Tool | Argümanlar | Agent'a dönen | Akıştaki yeri |
+| Tool | Argument'lar | Agent'a giden | Akıştaki yeri |
 |---|---|---|---|
 | `search_values` | `query` | Kelimeyi içeren ya da ona benzer yazılan en ilgili 5 değer: `tablo.sütun = 'değer'` | Adım 3 |
 | `ask_user` | `question` | Kullanıcının cevabı (clarification). Soru başına en fazla 5 kez | Adım 3 |
-| `execute_sql` | `sql`, forecast: `type`, `columns`, `rows`, `trust` | Gerçek sonuç (en fazla 20 satır) ve varsa surprise note; ya da pre-check notu | Adım 4–6 |
-| `submit` | `sql` | Cevap döner; ya da SQL çalışmıyorsa hata, medium note veya final check notu | Adım 7–9 |
+| `execute_sql` | `sql` | Gerçek sonuç (en fazla 20 satır; boşsa `search_values` hatırlatması) ya da pre-check notu | Adım 4–6 |
+| `submit` | `sql` | Cevap return edilir; ya da SQL çalışmıyorsa hata, medium note veya final check notu | Adım 7–9 |
 
-- **Forecast:** `execute_sql(sql=..., type="rows", columns=["category", "n"], rows="2-10", trust=true)`
-  - `type` (zorunlu): `error`, `empty` ya da `rows`.
-  - `columns` ve `rows` (isteğe bağlı, `type` `rows` ise): beklenen sütunlar ve satır aralıklarından biri.
-  - `trust` (isteğe bağlı): `true` "güveniyorum", `false` "emin değilim". Harness'ın kararlarını etkilemez.
-  - Küçük modeller için `read_forecast` küçük biçim hatalarını düzeltir (`"true"` → `true`, `'["a"]'` → `["a"]`, `358` → `"100+"`) ve iç içe bir `forecast` nesnesini de kabul eder.
-  - Forecast'in "tuttu" sayılması için `type` aynı olmalı; `rows` ise, yazıldıysa sütun sayısı ve satır aralığı da aynı olmalı. Sütun adları karşılaştırılmaz.
 - **`search_values`:** Metin sütunlarının farklı değerlerinden kurulmuş bir SQLite FTS5 index'inde arar. Index trigram'lıdır (kelimenin bir parçası da eşleşir); adaylar `difflib` ile yazım benzerliğine göre sıralanır, böylece "Los Angles" araması "Los Angeles"ı bulur. Index her veritabanı için bir kez kurulur ve `data/prepared/<db_id>/values.sqlite`'ta saklanır.
 
 ## `db/sqlite_db.py` ve `db/sqlite_schema.py` fonksiyonları
 
-| Fonksiyon | Döndürdüğü |
+| Function | Return |
 |---|---|
 | `execute(db_path, sql)` | `{"ok", "error", "columns", "rows", "row_count", "result_key"}`. `rows` en fazla 100 satır; `row_count` gerçek satır sayısı. `result_key` bütün satırlardan hesaplanır (aşağıda). Hata olursa `ok=False` ve `error` dolu |
 | `explain(db_path, sql)` | `{"ok", "error", "plan"}`: `plan`, `EXPLAIN QUERY PLAN` satırları. Sözdizimi hatası, eksik tablo/sütun ya da ikinci bir komut varsa `ok=False` ve `error` dolu |
@@ -87,14 +81,14 @@ def run_steps(context):
 
         if step["error"]:                                           # tool call okunamadı: reddedilir
             result = step["error"]
-        elif guards.is_repeat(step, context):                       # aynı çağrı: önceki sonuç döner
+        elif guards.is_repeat(step, context):                       # aynı çağrı: önceki sonuç agent'a gider
             result = guards.repeat_note(step, context)
         elif step["tool"] == "search_values":
             result = tools.search_values(query, context)            # adım 3
         elif step["tool"] == "ask_user":
             result = tools.ask_user(question, context)              # adım 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(sql, forecast, context)      # adım 4–6
+            result = execute.run_query(sql, context)                # adım 4–6
         elif context.teacher:
             return teacher_submit(step, context)                    # doğrudan final check
         else:
@@ -114,7 +108,8 @@ def run_steps(context):
 | Sabit | Değer | Akıştaki yeri |
 |---|---|---|
 | Tool-call budget | Agent 10, teacher bunun yarısı (5). Reddedilen istekler sayılır, candidate çalıştırmaları sayılmaz | Adım 2, 10 |
-| Budget hatırlatması | Son 2 tool call kalınca sonucun altına "submit et" notu (`BUDGET_WARNING`) | Adım 2 |
+| Kalan budget | Her sonucun altında yazar; son 2 hakta "submit et" hatırlatması da eklenir (`BUDGET_WARNING`) | Adım 2 |
+| Tekrar sınırı | Aynı çağrı 3. kez tekrarlanırsa handoff (`MAX_REPEATS`) | Adım 2, 10 |
 | `ask_user` sınırı | Soru başına 5 (agent ve teacher toplam); budget'tan düşer | Adım 3 |
 | Search sonuç sayısı | 5 | Adım 3 |
 | Değer index'i | 100 karakterden uzun metinler index'e girmez; bir aramada index'ten en fazla 200 aday benzerlikle sıralanır | Adım 3 |
@@ -122,7 +117,6 @@ def run_steps(context):
 | Başlangıç bağlamı | En fazla 16K token; taşarsa policy modeli (temperature 0) soruya gereken tabloları seçer, diğerleri tek satıra iner | Adım 1 |
 | Profildeki değerler | Metin sütunlarında en sık 10 değer (en fazla 10 farklı değer varsa hepsi), en fazla 40 karakter; sayısal sütunlarda yalnızca min ve max | Adım 1 |
 | Database memory | Soruya en çok benzeyen 3 kayıt (TF-IDF benzerliği) | Adım 1 |
-| Satır aralıkları (forecast) | `0`, `1`, `2-10`, `11-100`, `100+` | Adım 4, 6 |
 | Zaman aşımı / satır sınırı | 30 saniye / 100 satır | Adım 6 |
 | Agent'a gösterilen sonuç | En fazla 20 satır, hücre başına en fazla 100 karakter | Adım 6 |
 | Bağlam sınırı | 32K token; aşılırsa en eski observation'lar tek satıra indirilir | Her adım |
@@ -143,7 +137,7 @@ def run_steps(context):
 
 **`results/<deney>_seed<n>.jsonl`** (her deney ve seed için bir dosya):
 - İlk satır deneyin kendisidir: deney adı, seed, veri seti (`bird` / `mini_interact`), `--limit`, soru sayısı, bütün `config.py` değerleri ve prompt metinleri.
-- Sonraki her satır bir sorudur: `question_id`, `db_id`, `sql` (cevap), `label`, `answered_by` (agent / teacher), `correct` (doğru SQL'i yoksa boş), `tool_calls`, `executions` (gerçek çalıştırma sayısı), `forecasts`, `forecast_hits`, `candidates`, `clarifications`, `handoff_reason`, `steps` (her tool call ve observation; `by` alanı agent mı teacher mı), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. Gold SQL hata verirse `gold_error`, model cevap vermezse `error` da yazılır.
+- Sonraki her satır bir sorudur: `question_id`, `db_id`, `sql` (cevap), `label`, `answered_by` (agent / teacher), `correct` (doğru SQL'i yoksa boş), `tool_calls`, `executions` (gerçek çalıştırma sayısı), `candidates`, `clarifications`, `handoff_reason`, `steps` (her tool call ve observation; `by` alanı agent mı teacher mı), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. Gold SQL hata verirse `gold_error`, model cevap vermezse `error` da yazılır.
 
 **`experience/log.jsonl`** (experience log; ileride agent'ın eğitim verisi, kayıtlar birikir; `agent/loop.py` her soru bitince yazar): her satır bir soru: zaman, split (`use` kullanımda, `dev` değerlendirmede; `correct` yalnızca `dev`'de dolu), veri seti, `question_id`, `db_id`, soru, evidence, gold SQL, cevap SQL'i, `label`, `correct`, `answered_by`, `handoff_reason`, model adları, seed ve `messages` (agent'ın, handoff olduysa teacher'ın da gördüğü konuşmanın tamamı: sistem prompt'u, adım 1'in bağlamı, her tool call ve observation). Eğitime yalnızca `split = train` satırları girer. `experience/executions.jsonl` eski biçimde (her SQL çalıştırması bir satır) yazılmış kayıtlardır.
 
@@ -157,7 +151,7 @@ Sistem küçük aşamalarla yazıldı. Her aşama tek bir parça ekledi, `pytest
 |---|---|---|
 | Phase 1-A: Temel (model yok) | 1–3 | Veritabanı katmanı; BIRD dev verisi ve puanlama; başlangıç bağlamı |
 | Phase 1-B1: İlk çalışan agent | 4–8 | Model çalıştırma; tool'suz tek SQL (baseline); agent loop ve `submit`; `execute_sql`; pre-check |
-| Phase 1-B2: Trial loop | 9–15 | Tekrar guardrail'i ve cache; uzun sonucun kırpılması; bağlamın sıkıştırılması; `search_values`; agent forecast ve surprise note |
+| Phase 1-B2: Trial loop | 9–15 | Tekrar guardrail'i ve cache; uzun sonucun kırpılması; bağlamın sıkıştırılması; `search_values` |
 | Phase 1-B3: Cevabı doğrulama | 17–21 | Final check; candidate'ler; adaptive rule (8'e tamamlama); confidence gate; medium note |
 | Phase 1-B4: Yardım ve hafıza | 22–25 | Handoff (teacher); `ask_user`; database memory |
 | Phase 1 sonuçları | 29 | Tam sistemle ölçüm |

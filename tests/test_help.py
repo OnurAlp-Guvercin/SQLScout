@@ -6,7 +6,7 @@ import config
 from agent import loop
 from agent.context import Context
 from harness import answer, memory
-from tests.fakes import EMPTY, ONE_ROW, call_reply, execute_reply, submit_reply, text_reply
+from tests.fakes import call_reply, execute_reply, submit_reply, text_reply, observation
 
 EMPTY_SQL = "SELECT id FROM items WHERE city = 'Paris'"
 COUNT_SQL = "SELECT COUNT(*) FROM items"
@@ -17,7 +17,7 @@ def test_teacher_continues_after_forced_handoff(db, fake_model, monkeypatch):
     replies += [submit_reply(EMPTY_SQL), submit_reply(EMPTY_SQL),  # agent: final check 2 kez geçmedi
                 submit_reply(COUNT_SQL)]  # teacher
     answer = loop.answer_question("How many items?", "", db)
-    takeover = seen[2][-1]["content"]
+    takeover = observation(seen[2][-1])
     assert takeover.startswith("A smaller agent worked on this question and handed it over to you. "
                                "Reason: final check 2 kez geçmedi.")
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
@@ -40,8 +40,8 @@ def test_ask_user_in_terminal_and_limit(db, fake_model, monkeypatch):
     replies += [call_reply("ask_user", {"question": "Count or sum?"}), call_reply("ask_user", {"question": "Sure?"}),
                 submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
-    assert seen[1][-1]["content"] == "User's answer: count them"
-    assert seen[2][-1]["content"] == "Rejected: you can ask the user at most 1 times for one question."
+    assert observation(seen[1][-1]) == "User's answer: count them"
+    assert observation(seen[2][-1]) == "Rejected: you can ask the user at most 1 times for one question."
     assert answer["clarifications"] == [{"question": "Count or sum?", "answer": "count them"}]
     assert prompts == ["\nQuestion: How many items?\nAgent asks: Count or sum?\nYour answer: "]  # ikinci soru sorulmadı
 
@@ -55,13 +55,13 @@ def test_clarifications_go_into_candidate_prompt(db):
 
 def test_corrected_mistake_is_remembered_for_similar_question(db, fake_model):
     replies, seen = fake_model
-    replies += [execute_reply(EMPTY_SQL, ONE_ROW), submit_reply(COUNT_SQL)]  # surprise note, sonra ok
+    replies += [execute_reply(EMPTY_SQL), submit_reply(COUNT_SQL)]  # boş sonuç, sonra ok
     loop.answer_question("How many items are there in Paris?", "", db)
     replies.append(submit_reply(COUNT_SQL))
     loop.answer_question("How many items in Paris?", "", db)
     context = seen[-1][1]["content"]
     assert "Mistakes made and corrected earlier on this database:" in context
-    assert f"{EMPTY_SQL} → Surprise: you forecast 1 column(s) and 1 row(s)" in context
+    assert f"{EMPTY_SQL} → No rows: the result is empty." in context
     assert f"Corrected: {COUNT_SQL}" in context
 
 
@@ -77,9 +77,9 @@ def test_memory_prefers_rare_shared_words(db, monkeypatch):
     assert memory.read(db, "How many heroes have the superpower Flight?")[0]["question"] == "List the superpower names."
 
 
-def test_wrong_forecast_with_unchanged_sql_is_not_remembered(db, fake_model):
+def test_mistake_with_unchanged_sql_is_not_remembered(db, fake_model):
     replies, _ = fake_model
-    replies += [execute_reply(COUNT_SQL, EMPTY), submit_reply(COUNT_SQL)]
-    answer = loop.answer_question("How many items?", "", db)
-    assert answer["label"] == "ok" and "Surprise" in answer["steps"][0]["result"]
+    replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL)]  # boş sonucu gördü ve aynı SQL'i kabul etti
+    answer = loop.answer_question("Which items are in Paris?", "", db)
+    assert answer["label"] == "ok" and answer["sql"] == EMPTY_SQL
     assert not config.MEMORY_DIR.exists()

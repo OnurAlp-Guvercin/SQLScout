@@ -26,10 +26,7 @@ def summary(rows, wall_seconds):
         for step in row.get("steps", []):
             if step["tool"] == "search_values":
                 searches += 1
-    forecasts = sum(row.get("forecasts", 0) for row in rows)
-    hits = sum(row.get("forecast_hits", 0) for row in rows)
-    print(f"Search çağrısı: {searches} | forecast tuttu: {hits}/{forecasts}"
-          + (f" = {100 * hits / forecasts:.0f}%" if forecasts else ""))
+    print(f"Search çağrısı: {searches}")
     teacher = sum(row.get("answered_by") == "teacher" for row in rows)
     handoffs = sum(bool(row.get("handoff_reason")) for row in rows)
     asks = sum(len(row.get("clarifications", [])) for row in rows)

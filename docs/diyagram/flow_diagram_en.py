@@ -34,9 +34,9 @@ def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-4B',
       '<b>Now:</b> untrained. <b>Later:</b> inside the harness, with the experience log: SFT → on-policy distillation → RL',
-      '<b>Role:</b> decides which tool to call; predicts the result before running SQL (forecast)'),
+      '<b>Role:</b> decides which tool to call: searches values, tries SQL, looks at the result, asks if needed'),
      ('harness','HARNESS (no LLM)','plain Python',
-      'Context preparation, search_values, ask_user, pre-check, compare, candidate selection, confidence gate, final check',
+      'Context preparation, search_values, ask_user, pre-check, turning the result into text, candidate selection, confidence gate, final check',
       '<b>Guardrails:</b> no repeated calls · long results trimmed · context compressed · submit reminder when the budget is low'),
      ('db','REAL DATABASE','SQLite, read-only',
       'Exposed as the <i>execute_sql</i> tool',
@@ -99,13 +99,13 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
 <li>If the question is ambiguous, ask the user (<i>ask_user</i>)</li>
-<li>Before running SQL, write a <b>forecast</b>:<br><i>type</i>: error / empty / rows<br>optional: <i>columns</i>, <i>rows</i>, <i>trust</i></li>
+<li>Try SQL, look at the real result, fix it</li>
 <li>Read the observation</li><li>Repeat until <i>submit</i></li></ul>
 <p>Budget: at most 10 tool calls</p></div>''')
 
 # handoff from agent (top)
 arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
-label(600,524,'<b>Handoff:</b> out of budget · final check failed twice','t')
+label(600,524,'<b>Handoff:</b> out of budget · 3 repeats · final check failed twice','t')
 
 node(822,546,324,118,'harness','search_values · ask_user','The spelling of a value step 1 does not show, or the user\'s answer · copy kept for step 7',tsize=17)
 node(1226,560,296,92,'io','User','Answers the ask_user question at the terminal',shape='pill',tsize=19)
@@ -115,7 +115,7 @@ arrow([(390,584),(818,584)],'k')
 arrow([(822,630),(394,630)],'b'); label(606,630,'spelling of a value · user\'s answer','b')
 
 node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN)<br>3. Already run before (cache)?',tsize=18)
-arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql request + agent forecast','k')
+arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql request','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'check error or cached result','b')
 
 node(1226,700,296,92,'db','execute_sql','Runs the query, read-only',tsize=19)
@@ -123,9 +123,9 @@ arrow([(1146,746),(1222,746)],'k'); label(1186,746,'run','k')
 
 
 
-node(822,900,324,104,'harness','Compare','Real result ↔ agent forecast · on a miss, a <b>surprise note</b>',tsize=18)
+node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the value\'s spelling with <i>search_values</i>',tsize=18)
 arrow([(1440,792),(1440,950),(1150,950)],'k')
-arrow([(822,976),(394,976)],'b'); label(606,976,'real result + surprise note','b')
+arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
 node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (prompt: question + evidence + user answers + schema + search notes; no agent SQL) · 8 in total if no consensus · largest group',tsize=18)
 arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
@@ -141,7 +141,7 @@ arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low or 2nd medium →
 
 node(1574,1130,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
 
-node(822,1340,324,112,'decision','Final check','Runs it if not yet run · read-only + existing tables/columns · if empty: was the forecast “empty”?',shape='hex',tsize=18)
+node(822,1340,324,112,'decision','Final check','Runs it if not yet run · read-only + existing tables/columns · if empty: did the agent see it?',shape='hex',tsize=18)
 arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
 arrow([(822,1396),(394,1396)],'p'); label(606,1396,'failed → keep working','p')
 
@@ -173,7 +173,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use, asks the user when the question is ambiguous, and writes a forecast before running any SQL; the real execution checks the forecast (predict). The answer is chosen among candidate groups by consensus (gate), and everything that is submitted has really been executed (settle). If it gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question's whole conversation is written to the experience log; the agent is trained on it later.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result, and asks the user when the question is ambiguous. The answer is chosen among candidate groups by consensus, and everything that is submitted has really been executed. If it gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
@@ -195,7 +195,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): agentic Text-to-SQL with a forecast-checked agent loop, candidate selection and handoff</div>
+<div class="title">Predict – Gate – Settle (PGS): agentic Text-to-SQL with an agent loop, candidate selection and handoff</div>
 <div class="sub">What happens for a single user question. Each column is a component; numbers are the steps in AGENTIC_FLOW.md.</div>
 {''.join(divs)}
 </div></body></html>'''

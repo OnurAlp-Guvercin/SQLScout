@@ -131,7 +131,7 @@ def load_profiles(db_path, tables):
 
 
 def select_tables(question, evidence, blocks):
-    """blocks: {tablo adı: tablonun tam metni}. Döner: soruya gereken tablo adları, ör. {"superhero", "superpower"}."""
+    """blocks: {tablo adı: tablonun tam metni}. Return: soruya gereken tablo adları, ör. {"superhero", "superpower"}."""
     selected = set()
     for chunk in split(blocks):
         selected |= ask(question, evidence, chunk)
@@ -153,7 +153,7 @@ def split(blocks):
 
 
 def ask(question, evidence, chunk):
-    """Modele bir parça şemayı ve soruyu verir; seçtiği tablolardan bu parçada olanları döndürür."""
+    """Modele bir parça şemayı ve soruyu verir; seçtiği tablolardan bu parçada olanları return eder."""
     schema = "\n\n".join(chunk.values())
     evidence_line = f"Evidence: {evidence}\n" if evidence else ""
     messages = [{"role": "system", "content": prompts.SELECT_TABLES},

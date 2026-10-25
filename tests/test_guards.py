@@ -1,4 +1,4 @@
-"""harness/guards.py testleri: bozuk çıktının reddi (aşama 6), tekrar (9), kırpma (10), sıkıştırma (11), forecast (15)."""
+"""harness/guards.py testleri: bozuk çıktının reddi, tekrar, kırpma, sıkıştırma."""
 
 from types import SimpleNamespace
 
@@ -35,7 +35,7 @@ def test_unknown_tool_is_rejected():
 def test_broken_json_is_rejected():
     step = guards.read_tool_call(reply_with("submit", '{"sql": "SELECT 1"'), TOOLS)
     assert "not a valid JSON object" in step["error"]
-    assert step["arguments"] == "{}"  # bozuk argümanlar konuşma geçmişine girmez
+    assert step["arguments"] == "{}"  # bozuk argument'lar konuşma geçmişine girmez
 
 
 def test_arguments_that_are_not_an_object_are_rejected():
@@ -57,50 +57,24 @@ def test_only_first_of_many_calls_is_taken():
     assert guards.read_tool_call(reply, TOOLS)["args"] == {"sql": "SELECT 1"}
 
 
-def test_forecast_written_as_text_is_read():
-    arguments = '{"sql": "SELECT 1", "forecast": "{\\"type\\": \\"empty\\", \\"trust\\": true}"}'
-    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
-    assert step["error"] is None
-    assert step["args"]["forecast"] == {"type": "empty", "trust": True}
-
-
-def test_bad_forecast_names_the_wrong_fields():
-    arguments = '{"sql": "SELECT 1", "forecast": {"type": "rows", "columns": [], "rows": "many", "trust": "yes"}}'
-    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
-    assert step["error"].startswith("Rejected: the forecast is not valid: columns must be")
-    assert "rows must be one of: 0, 1, 2-10, 11-100, 100+" in step["error"]
-    assert "trust must be true or false" in step["error"]
-
-
-def test_only_type_is_required_in_the_forecast():
-    step = guards.read_tool_call(reply_with("execute_sql", '{"sql": "SELECT 1", "type": "rows"}'), [prompts.EXECUTE_SQL])
-    assert step["error"] is None and step["args"]["forecast"] == {"type": "rows"}
-
-
-def test_forecast_fields_at_top_level_and_small_format_mistakes_are_fixed():
-    arguments = '{"sql": "SELECT 1", "type": "Rows", "columns": "[\\"n\\"]", "rows": 358, "trust": "true"}'
-    step = guards.read_tool_call(reply_with("execute_sql", arguments), [prompts.EXECUTE_SQL])
-    assert step["error"] is None
-    assert step["args"] == {"sql": "SELECT 1", "forecast": {"type": "rows", "columns": ["n"], "rows": "100+", "trust": True}}
-
-
 def past(*steps):
     return SimpleNamespace(steps=list(steps))
 
 
 def test_repeat_rules():
-    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1", "forecast": {}}, "result": "Columns: 1"}
-    same_sql = {"tool": "execute_sql", "args": {"sql": " SELECT   1 ", "forecast": {"type": "error"}}}
-    assert guards.is_repeat(same_sql, past(old))
-    assert guards.repeat_note(same_sql, past(old)).endswith("Its result was:\nColumns: 1")
+    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1"}, "result": "Columns: 1"}
+    same_sql = {"tool": "execute_sql", "args": {"sql": " SELECT   1 "}}
+    earlier = guards.earlier_calls(same_sql, past(old))
+    assert earlier == [old]
+    assert guards.repeat_note(earlier).endswith("Its result was:\nColumns: 1")
     other_sql = {"tool": "execute_sql", "args": {"sql": "SELECT 2"}}
-    assert not guards.is_repeat(other_sql, past(old))
+    assert guards.earlier_calls(other_sql, past(old)) == []
     search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "..."}
-    assert guards.is_repeat(dict(search), past(search))
+    assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
     submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Submitted."}
-    assert not guards.is_repeat(dict(submit), past(submit))  # submit hiç tekrar sayılmaz
-    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argümanı yok
-    assert not guards.is_repeat(other_sql, past(rejected))
+    assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz
+    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argument'ı yok
+    assert guards.earlier_calls(other_sql, past(rejected)) == []
 
 
 def test_long_rows_and_cells_are_trimmed():

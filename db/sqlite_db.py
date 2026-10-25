@@ -27,7 +27,7 @@ def error_result(message):
 
 
 def execute(db_path, sql):
-    """Sorguyu çalıştırır. Agent'a en fazla MAX_RESULT_ROWS satır döner; result_key bütün satırlardan hesaplanır."""
+    """Sorguyu çalıştırır. Agent'a en fazla MAX_RESULT_ROWS satır return eder; result_key bütün satırlardan hesaplanır."""
     if not is_read_only(sql):
         return error_result("Yalnızca SELECT ya da WITH ile başlayan sorgular çalıştırılır.")
 
@@ -74,7 +74,7 @@ def result_key(rows):
 
 
 def explain(db_path, sql):
-    """Sorguyu çalıştırmadan planını verir; sözdizimi ya da eksik tablo/sütun varsa hata döner."""
+    """Sorguyu çalıştırmadan planını verir; sözdizimi ya da eksik tablo/sütun varsa hata return eder."""
     conn = connect(db_path)
     try:
         plan = [row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql)]

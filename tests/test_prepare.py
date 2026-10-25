@@ -71,7 +71,7 @@ BLOCKS = {"orders": "Table orders\n- id INTEGER", "customers": "Table customers\
 
 
 def fake_chat(monkeypatch, answers):
-    """Model sırayla answers'taki metinleri döndürür; modele giden şema parçaları kaydedilir."""
+    """Model sırayla answers'taki metinleri return eder; modele giden şema parçaları kaydedilir."""
     seen = []
 
     def chat(messages, temperature=None):

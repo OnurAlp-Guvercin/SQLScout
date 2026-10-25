@@ -1,8 +1,8 @@
 # Predict – Gate – Settle (PGS)
 
-**Forecast ile denetlenen agent loop, candidate selection ve handoff ile agentic Text-to-SQL.**
+**Agent loop, candidate selection ve handoff ile agentic Text-to-SQL.**
 
-Küçük bir policy agent soruyu tool'larla çözer; soru belirsizse kullanıcıya sorar. Her SQL'i çalıştırmadan önce sonucunu tahmin eder (agent forecast) ve gerçek çalıştırma bu tahmini denetler (predict). Cevap, ayrı ayrı yazılmış SQL'lerin aynı sonucu verip vermediğine bakan bir gate'ten geçer (gate) ve dönen her cevap gerçekten çalıştırılmıştır (settle). Agent takılırsa iş büyük bir teacher LLM'e devredilir (handoff). Tasarımın dayandığı literatür [ARASTIRMA.md](ARASTIRMA.md), kodun yapısı [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
+Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, gerekirse kullanıcıya sorar. Cevap, ayrı ayrı yazılmış SQL'lerin aynı sonucu verip vermediğine bakan bir gate'ten geçer ve dönen her cevap gerçekten çalıştırılmıştır. Agent takılırsa iş büyük bir teacher LLM'e devredilir (handoff). Tasarımın dayandığı literatür [ARASTIRMA.md](ARASTIRMA.md), kodun yapısı [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
 
 ## Akış
 
@@ -33,7 +33,6 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Trial loop | Agent'ın ara, sor, dene, sonuca bak, düzelt diye döndüğü döngü (adım 2–6) |
 | Column profile | Bir sütunun özeti: tipi, NULL oranı, en sık değerleri (az değerli sütunlarda hepsi), sayısalsa min ve max |
 | Harness | Agent'ın etrafındaki normal kod: tool'ları çalıştırır, kontrolleri ve gate'i yönetir. İçinde LLM yok |
-| Agent forecast | Agent'ın bir SQL'i çalıştırmadan önce yazdığı sonuç tahmini |
 | Pre-check | SQL çalıştırılmadan önce harness'ın yaptığı ucuz kontroller: salt okuma mı, `EXPLAIN` hata veriyor mu, cache'te var mı (adım 5) |
 | Cache | Aynı soru içinde daha önce çalışmış SQL'lerin saklanan sonuçları; aynı SQL yeniden çalıştırılmaz |
 | Confidence gate | Candidate'lerin yeterince uzlaşıp uzlaşmadığına bakan karar noktası (adım 8) |
@@ -46,7 +45,6 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | `ask_user` | Agent'ın belirsiz bir soruda kullanıcıya kısa bir netleştirme sorusu sorduğu tool (ör. "adet mi, tutar mı?") |
 | Clarification | Kullanıcının `ask_user` sorusuna verdiği cevap. Sorunun bir parçası sayılır |
 | Search notes | Search sonuçlarının, candidate prompt'u için ayrıca saklanan kopyası |
-| Surprise note | Forecast tutmayınca gerçek sonuçla birlikte agent'a dönen kısa not (ör. "dolu bekliyordun, boş geldi") |
 | Medium note | Confidence gate medium çıkınca agent'a dönen not: en kalabalık iki candidate grubunun özeti |
 | Database memory | Bir veritabanında daha önce yapılmış ve düzeltilmiş hataların kaydı. Adım 1'de bağlama eklenir |
 | Result key | Bir sorgu sonucunu karşılaştırmak için kullanılan anahtar. Sonucun bütün satırları küme olarak alınır: satır sırası ve tekrar eden satırlar önemsiz, sütun sırası önemli (BIRD'ün resmi kuralı). Anahtarı aynı olan iki sonuç "aynı sonuç" sayılır |
@@ -64,7 +62,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 
 ## Bileşenler
 
-- **Policy agent (Qwen3.5-4B):** Her adımda hangi tool'u çağıracağına karar verir. SQL çalıştırmadan önce sonucu tahmin eder. Şimdilik eğitilmemiş hâliyle kullanılır; ileride experience log'la harness'ın içinde eğitilir.
+- **Policy agent (Qwen3.5-4B):** Her adımda hangi tool'u çağıracağına karar verir. Şimdilik eğitilmemiş hâliyle kullanılır; ileride experience log'la harness'ın içinde eğitilir.
 - **Harness (düz Python, LLM yok):** Tool'ları çalıştırır, kontrolleri yapar, confidence gate'i ve final check'i yönetir. Guardrail'leri de o uygular.
 - **Veritabanı (SQLite, salt okunur):** `execute_sql`.
 - **Kullanıcı:** `ask_user` sorularını cevaplar. Soru hep terminale gelir, `run.py`'de de `evaluate.py`'de de. Deneyi yürüten kişi, sorunun ne demek istediğini bilen bir kullanıcı gibi tek cümleyle cevaplar; SQL'i ya da sonucu söylemez. Doğru SQL agent'ın bağlamına hiç girmez, yalnızca puanlamada kullanılır.
@@ -73,7 +71,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 ## Akış adım adım
 
 Görseldeki numaralar bu adımlardır. İş bölümü basit:
-- **Agent** ne yapılacağına karar verir: hangi tool, hangi SQL, forecast, kullanıcıya ne sorulacağı, ne zaman `submit`.
+- **Agent** ne yapılacağına karar verir: hangi tool, hangi SQL, kullanıcıya ne sorulacağı, ne zaman `submit`.
 - **Harness** geri kalan her şeye karar verir: kontroller, candidate'ler, confidence gate, final check, handoff.
 
 Tool argümanları ve sayısal sınırlar [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
@@ -101,10 +99,10 @@ Agent her turda tek bir tool call yapar:
 - Bir SQL'i denemek istiyorsa → `execute_sql` → 4
 - Cevaptan eminse → `submit` → 7
 
-Her observation'dan sonra agent buraya döner. Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Son 2 tool call kalınca sonucun altına "çalıştırdığın bir sorgu soruyu cevaplıyorsa şimdi submit et" hatırlatması eklenir. Budget biterse harness handoff'u zorlar → 10.
+Her observation'dan sonra agent buraya döner. Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa şimdi submit et" hatırlatması da eklenir. Budget biterse harness handoff'u zorlar → 10.
 
 **Guardrail'ler.** Küçük modeller bazı tipik hataları sık yapar; bunlar sistemi bozmasın diye harness her adımda üç basit kural uygular (DualSQL).
-1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. `execute_sql`'de yalnızca SQL'e bakılır. `submit` hariç: medium note'tan sonra aynı SQL'i yeniden göndermek geçerli bir seçimdir.
+1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 10. `submit` hariç: medium note'tan sonra aynı SQL'i yeniden göndermek geçerli bir seçimdir.
 2. **Uzun sonuç kırpılır:** Agent en fazla 20 satır görür, yanında toplam satır sayısı yazar.
 3. **Bağlam sıkıştırılır:** Konuşma 32K token'ı aşarsa en eski sonuçlar tek satırlık özete iner (ör. "Columns: name | 358 rows").
 
@@ -114,21 +112,14 @@ Agent bunları istediği an kullanır. Adım 1 zengin olduğu için çoğu sorud
 - **`search_values`:** Bir kelimenin veritabanında hangi sütunda, hangi değer olarak geçtiğini bulur; benzer yazılanlar dahil. Örnek: "Los Angles" → `city = 'Los Angeles'`.
 - **`ask_user`:** Soruyu yalnızca kullanıcı netleştirebiliyorsa kısa bir soru sorulur. Örnek: "adet mi, tutar mı?" → "adet". Soru başına en fazla 5 kez (agent ve teacher toplam).
 
-Arama her şeyi bulamaz: soruda "iade", veritabanında `'returned'` yazıyorsa eşleşmez. Bu durumda evidence çoğu zaman eşleşmeyi verir; vermezse agent kullanıcıya sorar ya da yanlış değerle boş sonuç alır ve surprise note onu başka bir değer denemeye yönlendirir.
+Arama her şeyi bulamaz: soruda "iade", veritabanında `'returned'` yazıyorsa eşleşmez. Bu durumda evidence çoğu zaman eşleşmeyi verir; vermezse agent kullanıcıya sorar ya da yanlış değerle boş sonuç alır; boş sonucun altındaki not onu değerin yazılışını `search_values` ile kontrol etmeye yönlendirir.
 
 Sonuç observation olarak agent'a döner. Harness ayrıca bir kopyasını saklar: search sonuçlarını **search notes**, kullanıcının cevaplarını **clarification** olarak. İkisi de adım 7'de candidate'lere verilir. Neden kopya? Candidate'ler agent'ın geçmişini görmez; görse agent'ın SQL'ini kopyalar. Kopya sayesinde bulunan bilgiyi (ör. `'returned'`) alırlar, SQL'i almazlar.
 → 2
 
-### 4. `execute_sql` isteği ve forecast
+### 4. `execute_sql` isteği
 
-Agent SQL'le birlikte sonucun ne olacağını da tahmin eder (forecast). Bunlar `execute_sql`'in argümanlarıdır:
-- `type` (zorunlu): `error` (hata), `empty` (boş) ya da `rows` (dolu).
-- `columns` ve `rows` (`rows` ise, yazabiliyorsa): beklenen sütunlar ve satır aralığı (`0`, `1`, `2-10`, `11-100`, `100+`).
-- `trust` (isteğe bağlı): emin mi, değil mi.
-
-Örnek: `execute_sql(sql="SELECT ...", type="rows", columns=["category", "n"], rows="1", trust=true)`
-
-`type` yoksa ya da bir alanın biçimi bozuksa istek reddedilir (→ 2). Küçük biçim hataları düzeltilir (ör. `"true"` → `true`, `358` → `"100+"`); alanlar iç içe bir `forecast` nesnesinde gelse de kabul edilir.
+Agent denemek istediği SQL'i `execute_sql(sql="SELECT ...")` ile gönderir.
 → 5
 
 ### 5. Pre-check
@@ -143,11 +134,9 @@ Agent'ın SQL'leri, candidate'ler ve final check buradan geçer. Harness sırayl
 1–2'de takılan sorgunun notu agent'a döner (→ 2).
 → 6
 
-### 6. Gerçek çalıştırma ve karşılaştırma
+### 6. Gerçek çalıştırma
 
-Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye) ve gerçek sonuç agent'ın forecast'iyle karşılaştırılır.
-- Forecast'in "tuttu" sayılması için result type aynı olmalı; `rows` ise, yazıldıysa sütun sayısı ve satır aralığı da. Sütun adlarına bakılmaz, çünkü aynı sütun farklı takma adla gelebilir.
-- Agent'a gerçek sonuç (kırpılmış hâli) döner. Forecast tutmadıysa yanında bir surprise note gelir. Örnek: "1 sütun ve 100+ satır bekliyordun, sonuç boş".
+Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye). Agent'a gerçek sonuç döner: sütunlar, satır sayısı, en fazla 20 satır ya da hata mesajı. Sonuç boşsa altına "sorgu bir metin değerine göre filtreliyorsa yazılışını `search_values` ile kontrol et" notu eklenir; değerin yanlış yazılması boş sonucun en sık sebebi.
 → 2
 
 > Adım 2 → 6 arası agent'ın **trial loop**'udur: ara, sor, dene, sonuca bak, düzelt.
@@ -159,7 +148,7 @@ Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye) ve ger�
 - **Önce:** Submit edilen SQL çalışmıyorsa (pre-check'ten geçmiyor ya da hata veriyorsa) candidate üretilmez; hata agent'a döner (→ 2).
 - **Kim yazar:** Agent'ın SQL'i de bir candidate'tir. Diğerlerini aynı policy modeli tool'suz, tek seferde yazar. Prompt'ta adım 1 bağlamı, search notes ve clarification'lar var. Agent'ın SQL'i prompt'a konmaz; konursa model onu kopyalar.
 - **Kaç tane (adaptive rule):** Önce 2 ek candidate. Hepsi agent'ın SQL'iyle aynı sonucu verirse durulur. Ayrışırlarsa toplam 8'e tamamlanır.
-- **Nasıl çalışır:** Her candidate adım 5–6'dan geçer (forecast'siz). Daha önce çalışmış SQL cache'ten gelir. Candidate'ler budget'tan düşmez, sonuçları agent'a dönmez (tek istisna adım 8'deki medium note).
+- **Nasıl çalışır:** Her candidate adım 5–6'dan geçer. Daha önce çalışmış SQL cache'ten gelir. Candidate'ler budget'tan düşmez, sonuçları agent'a dönmez (tek istisna adım 8'deki medium note).
 - **Gruplama:** Result key'i aynı olanlar, yani gerçek sonucu aynı olanlar, bir gruptur. Hata veren candidate hiçbir gruba girmez.
 - **Seçim:** En kalabalık grup seçilir. Başa baş ise en önce üretilmiş candidate'i içeren grup; agent'ın SQL'i ilk olduğu için onun grubu. Grubun cevabı grubun ilk SQL'idir.
 - **İkinci `submit`:** Agent medium note ya da final check notundan sonra yeniden `submit` ederse candidate'ler baştan üretilir, çünkü search notes ve clarification'lar değişmiş olabilir.
@@ -177,13 +166,13 @@ Karar yalnızca consensus'a bakar: en kalabalık grupta kaç candidate var?
 Cevap dönmeden önceki son kontrol:
 - **Salt okuma mı, tablolar ve sütunlar var mı?** (adım 5)
 - **Gerçekten çalışıyor mu?** Çalıştırılmadıysa (ör. teacher'ın cevabı) harness şimdi çalıştırır; böylece dönen her cevap gerçekten çalıştırılmış olur. Hata veren cevap geçmez.
-- **Sonuç boşsa, bu bekleniyor muydu?** Bu SQL için yazılan son forecast "boş" değilse ya da forecast yoksa geçmez.
+- **Sonuç boşsa, agent bunu görmüş müydü?** Boş sonuç yalnızca agent bu SQL'i daha önce `execute_sql` ile çalıştırıp boş geldiğini gördüyse geçer. Görmediyse (ör. seçilen SQL bir candidate ise) geçmez.
 
 Geçti → **cevap döner ✔** (label `ok`). Geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 10.
 
 ### 10. Handoff
 
-Handoff'u harness yapar: budget bitti, confidence low, ikinci kez medium, final check 2 kez geçmedi.
+Handoff'u harness yapar: budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci kez medium, final check 2 kez geçmedi.
 - Teacher sıfırdan başlamaz, agent'ın kaldığı yerden devam eder: bütün konuşmayı ve handoff'un nedenini görür.
 - Agent'ınkinin yarısı kadar yeni bir budget'la (5 tool call) ve aynı tool'larla çalışır (adım 2–6). `ask_user` için yalnızca sorunun kalan hakkını kullanır.
 - Teacher'ın `submit`'i candidate'lere gitmez, doğrudan final check'e gider. Geçerse `ok`. Geçmezse tekrar denenmez: SQL çalışıyorsa (ör. beklenmeyen boş sonuç) `low_confidence` ile döner, hiç çalışmıyorsa fallback answer döner. Teacher budget'ı içinde `submit` etmezse de fallback answer döner.
@@ -196,24 +185,23 @@ Handoff'u harness yapar: budget bitti, confidence low, ikinci kez medium, final 
 ### İki örnek
 
 **Örnek 1 ("2025'te en çok iade edilen kategori hangisi?"):**
-1 (evidence: iade = `status = 'returned'`) → 2 → 4 (SQL + forecast: "dolu, 1 satır") → 5 → 6 (gerçek sonuç, forecast tuttu) → 2 → 7 → 8 (high: 3/3) → 9 → ✔
+1 (evidence: iade = `status = 'returned'`) → 2 → 4 (SQL) → 5 → 6 (gerçek sonuç: 1 satır) → 2 → 7 → 8 (high: 3/3) → 9 → ✔
 
 **Örnek 2 (aynı soru, candidate'ler ayrışırsa):**
 1 → 2 → 4 → 5 → 6 → 2 → 7 → 8 (medium: 8 candidate'in 5'i adet sayıyor, 3'ü tutarı topluyor; medium note iki grubu gösterir) → 2 → 3 (`ask_user`: "adet mi, tutar mı?" → "adet") → 2 → 7 (clarification artık prompt'ta) → 8 (high: 7/8) → 9 → ✔
 
 ### Soru bittikten sonra
 
-**Database memory:** Cevap döndükten sonra, sorunun kendi konuşmasından yazılır. Soru `ok` ile bittiyse, yolda bir hata ya da surprise note olduysa ve cevap SQL'i o hatalı SQL'den farklıysa bir kayıt yazılır: soru, ilk hatalı SQL, aldığı not, cevap SQL'i. SQL değişmediyse hata sorguda değil forecast'teydi; kayıt bir şey öğretmez. Gold kullanılmaz. `evaluate.py` her deneyi boş bir memory ile başlatır.
+**Database memory:** Cevap döndükten sonra, sorunun kendi konuşmasından yazılır. Soru `ok` ile bittiyse, yolda bir hata ya da boş sonuç olduysa ve cevap SQL'i o hatalı SQL'den farklıysa bir kayıt yazılır: soru, ilk hatalı SQL, aldığı not, cevap SQL'i. SQL değişmediyse kayıt bir düzeltme öğretmez. Gold kullanılmaz. `evaluate.py` her deneyi boş bir memory ile başlatır.
 
 **Experience log:** Her soru bitince, nereden çalıştırılırsa çalıştırılsın (`run.py`, `evaluate.py` ya da kullanımdaki bir uygulama), bir satır yazılır: agent'ın (handoff olduysa teacher'ın da) gördüğü konuşmanın tamamı, cevap ve label. Değerlendirmede cevabın doğru olup olmadığı da yazılır (`split = dev`); kullanımda doğru SQL olmadığı için bu alan boş kalır (`split = use`), orada eğitim sinyali teacher'ın çözümleri, label ve kullanıcının cevaplarıdır. Kayıtlar birikir, hiç silinmez.
 
-**Agent eğitimi (ileride):** Agent, kullanılacağı harness'ın içinde, experience log'daki kayıtlarla eğitilir: önce teacher'ın doğru çıkan çözümleriyle SFT, sonra on-policy distillation (agent'ın kendi denemeleri, teacher'ın düzeltmesiyle), sonra RL (reward: cevabın doğruluğu, yanında forecast'in tutması). Eğitime yalnızca train split'inin kayıtları girer.
+**Agent eğitimi (ileride):** Agent, kullanılacağı harness'ın içinde, experience log'daki kayıtlarla eğitilir: önce teacher'ın doğru çıkan çözümleriyle SFT, sonra on-policy distillation (agent'ın kendi denemeleri, teacher'ın düzeltmesiyle), sonra RL (reward: cevabın doğruluğu). Eğitime yalnızca train split'inin kayıtları girer.
 
 ## Tasarım kararları
 
 | Karar | Neden | Dayanak |
 |---|---|---|
-| Forecast'i agent yapar, gerçek çalıştırma denetler | Agent hatasını sonuca bakmadan önce verdiği tahminle karşılaştırarak görür | ANTE, ECHO |
 | Son cevap her zaman gerçekten çalıştırılır | Çalıştırılmamış bir SQL'in doğru olduğu bilinemez | — |
 | Candidate generation & selection | Liderlik tablosunun zirvesindeki sistemlerin ortak yöntemi | Agentar-Scale-SQL, SIRIUS-SQL |
 | Sonuçlar BIRD'ün resmi kuralıyla karşılaştırılır (result key) | Candidate gruplama ile puanlama aynı ölçüyü kullanır; "aynı sonuç" tek bir yerde tanımlıdır | BIRD |
@@ -230,7 +218,7 @@ Handoff'u harness yapar: budget bitti, confidence low, ikinci kez medium, final 
 
 Sistem küçük, numaralı aşamalarla kuruldu; her aşama tek bir parça ekledi ve testle denendi. Liste [KOD_YAPISI.md](KOD_YAPISI.md) "Yazım sırası" bölümünde.
 
-1. **Phase 1, SQLite + BIRD:** temel (veritabanı, puanlama, başlangıç bağlamı), ilk çalışan agent, trial loop (guardrail'ler, `search_values`, forecast), cevabı doğrulama (final check, candidate'ler, confidence gate, medium note), yardım ve hafıza (handoff, `ask_user`, database memory).
+1. **Phase 1, SQLite + BIRD:** temel (veritabanı, puanlama, başlangıç bağlamı), ilk çalışan agent, trial loop (guardrail'ler, `search_values`), cevabı doğrulama (final check, candidate'ler, confidence gate, medium note), yardım ve hafıza (handoff, `ask_user`, database memory).
 2. **Phase 2, Mini-Interact:** bilerek belirsiz bırakılmış sorularda `ask_user`.
 3. **Yerel modeller:** Policy ve teacher yerelde çalışır.
 4. **Agent eğitimi (ileride):** experience log'la SFT → on-policy distillation → RL.
@@ -247,10 +235,6 @@ Bütün eşikler başlangıç değeridir; ölçülerek ayarlanır.
 ## Kaynakça
 
 Yalnızca bu tasarımı doğrudan şekillendiren çalışmalar. Tam tarama [ARASTIRMA.md](ARASTIRMA.md) dosyasında.
-
-**Agent forecast**
-- ANTE: Anticipate, Then Execute ([2610.15368](https://arxiv.org/abs/2610.15368)): agent'ın çalıştırmadan önce forecast yazması (adım 4).
-- ECHO: Terminal Agents Learn World Models for Free ([2605.24517](https://arxiv.org/abs/2605.24517)): gerçek çalıştırmanın forecast'i denetlemesi (adım 6).
 
 **Pre-check ve gate**
 - CYGNET ([2606.04645](https://arxiv.org/abs/2606.04645)): önce ucuz yapısal kontroller (adım 5).

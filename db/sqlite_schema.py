@@ -48,7 +48,7 @@ def primary_key_of(conn, table):
 
 
 def profile(db_path, table):
-    """Tablonun satır sayısı ve her sütununun özeti (profile_column). Döner: {"table", "row_count", "columns"}.
+    """Tablonun satır sayısı ve her sütununun özeti (profile_column). Return: {"table", "row_count", "columns"}.
     Adım 1 bunu her veritabanı için bir kez hesaplatır ve data/prepared/<db_id>/profiles.json'a yazar."""
     conn = connect(db_path)
     try:
@@ -88,7 +88,7 @@ def profile_column(conn, table, column, column_type, total):
 
 def descriptions(db_path):
     """Sütun açıklamaları: BIRD'de veritabanının yanındaki database_description/<tablo>.csv dosyaları,
-    Mini-Interact'te <db>_column_meaning_base.json. Döner: {tablo: {sütun: açıklama}}, adlar küçük harfle. Açıklama dosyası yoksa boş."""
+    Mini-Interact'te <db>_column_meaning_base.json. Return: {tablo: {sütun: açıklama}}, adlar küçük harfle. Açıklama dosyası yoksa boş."""
     folder = Path(db_path).parent / "database_description"
     found = {}
     for csv_path in sorted(folder.glob("*.csv")):

@@ -9,7 +9,6 @@ import config
 def new_stats():
     """Yalnızca sonuç dosyasına yazılan sayaçlar; hiçbir kararı etkilemezler."""
     return {"executions": 0,  # gerçek çalıştırma sayısı (candidate'ler dahil)
-            "forecasts": 0, "forecast_hits": 0,  # forecast'le karşılaştırılan sonuçlar ve tutanlar
             "candidates": 0,
             "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
 
@@ -31,7 +30,7 @@ class Context:
     calls: int = 0  # soru boyunca toplam tool call (agent + teacher); sonuç dosyasına yazılır
     calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden (yarım) dolar
     cache: dict = field(default_factory=dict)  # execute.sql_key(sql) → gerçek sonuç (adım 5)
-    last_forecast: dict = field(default_factory=dict)  # execute.sql_key(sql) → agent'ın bu SQL için son forecast'i
+    ran_by_agent: set = field(default_factory=set)  # agent'ın execute_sql ile çalıştırıp sonucunu gördüğü SQL'ler
     search_notes: list = field(default_factory=list)  # search sonuçlarının candidate prompt'u için kopyası
     clarifications: list = field(default_factory=list)  # ask_user soruları ve kullanıcının cevapları
     medium_notes: int = 0  # ikinci medium'da handoff

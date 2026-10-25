@@ -11,8 +11,8 @@ from harness import execute
 
 
 def finish(sql, context):
-    """Agent'ın submit'i. Döner: {"done": cevap kabul edildi mi, "note": agent'a dönecek not, "handoff": nedeni}.
-    Submit edilen SQL çalışmıyorsa candidate üretilmez; hata agent'a döner."""
+    """Agent'ın submit'i. Return: {"done": cevap kabul edildi mi, "note": agent'a dönecek not, "handoff": nedeni}.
+    Submit edilen SQL çalışmıyorsa candidate üretilmez; hata agent'a gider."""
     if result_of(sql, context) is None:
         error = execute.check(context.db_path, sql) or execute.run(sql, context)["error"]
         return {"done": False, "note": f"Submit rejected: your query does not run: {error}", "handoff": None}
@@ -38,7 +38,7 @@ def finish(sql, context):
 
 def candidates(agent_sql, context):
     """Agent'ın SQL'i ilk candidate'tir. Önce 2 ek candidate yazılır; sonuçları agent'ınkiyle aynı değilse toplam 8'e
-    tamamlanır (adaptive rule). Döner: (gruplar, candidate sayısı); en kalabalık grup başta."""
+    tamamlanır (adaptive rule). Return: (gruplar, candidate sayısı); en kalabalık grup başta."""
     sqls = [agent_sql]
     results = [result_of(agent_sql, context)]
     write_candidates(sqls, results, config.FIRST_EXTRA_CANDIDATES, context)
@@ -88,7 +88,7 @@ def candidate_prompt(context):
 
 
 def write_sql(prompt, temperature=None, seed=None):
-    """Tool'suz tek bir SQL. Döner: modelin cevabı, "sql" alanıyla."""
+    """Tool'suz tek bir SQL. Return: modelin cevabı, "sql" alanıyla."""
     messages = [{"role": "system", "content": prompts.WRITE_SQL}, {"role": "user", "content": prompt}]
     reply = llm.chat(messages, temperature=temperature, seed=seed)
     reply["sql"] = extract_sql(reply["text"])
@@ -96,11 +96,14 @@ def write_sql(prompt, temperature=None, seed=None):
 
 
 def extract_sql(text):
-    """Modelin cevabından SQL'i çıkarır: önce ```sql bloğu, yoksa herhangi bir ``` bloğu, yoksa metnin tamamı."""
+    """Modelin cevabından SQL'i çıkarır: önce ```sql bloğu, yoksa herhangi bir ``` bloğu, yoksa metnin tamamı
+    (kapanmamış bir blok açılışı varsa o atılır)."""
     match = re.search(r"```sql\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if not match:
         match = re.search(r"```\s*(.*?)```", text, re.DOTALL)
-    return (match.group(1) if match else text).strip()
+    if match:
+        return match.group(1).strip()
+    return re.sub(r"^```(sql)?", "", text.strip(), flags=re.IGNORECASE).strip()
 
 
 def result_of(sql, context):
@@ -150,17 +153,15 @@ def medium_note(groups, candidate_count):
 
 
 def final_check(sql, context):
-    """Geçerse None, geçmezse agent'a dönecek not. Cevap çalışmalı, hata vermemeli; boşsa agent bu SQL için "empty"
-    forecast'i yazmış olmalı."""
+    """Geçerse None, geçmezse agent'a dönecek not. Cevap çalışmalı, hata vermemeli; boşsa agent bu SQL'i daha önce
+    execute_sql ile çalıştırıp boş geldiğini görmüş olmalı."""
     note = execute.check(context.db_path, sql)
     if note:
         return f"Final check failed: {note}"
     result = execute.run(sql, context)
     if not result["ok"]:
         return f"Final check failed: the query gives an error: {result['error']}"
-    if result["row_count"] == 0:
-        forecast = context.last_forecast.get(execute.sql_key(sql))  # bu SQL hiç denenmediyse yok (ör. candidate)
-        if not forecast or forecast["type"] != "empty":
-            return ("Final check failed: the query returns no rows, but you did not forecast an empty result for it. "
-                    "Check the values and conditions in the query.")
+    if result["row_count"] == 0 and execute.sql_key(sql) not in context.ran_by_agent:
+        return ("Final check failed: the query returns no rows. Check the values and conditions in the query; "
+                "if an empty result is the right answer, run it with execute_sql first, then submit it again.")
     return None

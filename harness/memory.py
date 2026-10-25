@@ -1,5 +1,5 @@
 """Database memory (adım 1 ve soru bittikten sonra). Bir soru ok ile bittiyse, yolda bir hata ya da
-surprise note olduysa ve cevap SQL'i o hatalı SQL'den farklıysa bir kayıt yazılır: soru, ilk hatalı SQL, aldığı not,
+boş sonuç olduysa ve cevap SQL'i o hatalı SQL'den farklıysa bir kayıt yazılır: soru, ilk hatalı SQL, aldığı not,
 cevap SQL'i. Aynı veritabanındaki benzer sorular bunu adım 1'de görür. Gold SQL hiç kullanılmaz.
 Dosya: config.MEMORY_DIR / <db_id>.jsonl"""
 
@@ -53,7 +53,7 @@ def similarity(question_words, record_words, idf):
 def write(context, answer):
     if answer["label"] != "ok" or context.first_mistake is None:
         return
-    # SQL değişmediyse hata SQL'de değil forecast'teydi: kayıt bir düzeltme öğretmez, bağlama gürültü katar.
+    # SQL değişmediyse kayıt bir düzeltme öğretmez, bağlama gürültü katar.
     if execute.sql_key(context.first_mistake["sql"]) == execute.sql_key(answer["sql"]):
         return
     record = {"question": context.question, "wrong_sql": context.first_mistake["sql"],

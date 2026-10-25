@@ -1,4 +1,4 @@
-"""Modele istek atar ve cevabı döndürür. İstekler yerel mlx_lm.server'a ya da OpenRouter API'sine gider;
+"""Modele request atar ve cevabı return eder. İstekler yerel mlx_lm.server'a ya da OpenRouter API'sine gider;
 ikisi de aynı (OpenAI) biçimi konuşur, adres config.py'de.
 Policy, candidate'ler ve teacher hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
 
@@ -19,7 +19,7 @@ import config
 
 def chat(messages, temperature=None, tools=None, seed=None, model=None):
     """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa policy modeli.
-    Döner: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
+    Return: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
     body = request_body(messages, temperature, tools, seed, model or config.POLICY_MODEL)
     headers = {"Content-Type": "application/json"}
     key = api_key()
@@ -54,7 +54,7 @@ def request_body(messages, temperature, tools, seed, model):
         # Thinking modu kapalı: ilki OpenRouter, ikincisi yerel mlx_lm.server için.
         "reasoning": {"enabled": False},
         "chat_template_kwargs": {"enable_thinking": False},
-        "usage": {"include": True},  # OpenRouter isteğin maliyetini de döndürür
+        "usage": {"include": True},  # OpenRouter request'in maliyetini de return eder
     }
     if config.POLICY_PROVIDER and model == config.POLICY_MODEL:
         body["provider"] = {"order": [config.POLICY_PROVIDER], "allow_fallbacks": False}
@@ -91,7 +91,7 @@ def post(url, body, headers):
 
 
 def api_key():
-    """API anahtarı: önce ortam değişkeni, yoksa proje kökündeki .env dosyası. Yerel sunucuda gerekmez."""
+    """API key: önce environment variable, yoksa proje kökündeki .env dosyası. Yerel sunucuda gerekmez."""
     name = config.LLM_API_KEY_NAME
     if os.environ.get(name):
         return os.environ[name]

@@ -42,7 +42,7 @@ def database_path(db_id):
 
 
 def score(db_path, sql, gold_sql):
-    """BIRD kuralı: cevabın result key'i gold SQL'inkiyle aynıysa doğru. Döner: (doğru mu, gold'un hatası)."""
+    """BIRD kuralı: cevabın result key'i gold SQL'inkiyle aynıysa doğru. Return: (doğru mu, gold'un hatası)."""
     gold = sqlite_db.execute(db_path, gold_sql)
     if not gold["ok"]:
         return False, gold["error"]
@@ -61,7 +61,7 @@ def answer_question(question, seed, dataset):
 
 
 def run_one(question, seed, dataset="bird"):
-    """Bir soruyu cevaplar ve puanlar; sonuç dosyasının bir satırını döndürür."""
+    """Bir soruyu cevaplar ve puanlar; sonuç dosyasının bir satırını return eder."""
     start = time.monotonic()
     row = {"question_id": question["question_id"], "db_id": question["db_id"]}
     try:

@@ -26,7 +26,7 @@ This document describes how the code is organized, how it is written and in what
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
 | `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, database memory, evidence, question). If the context exceeds 16K, `select_tables`: an LLM selects the tables the question needs. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
 | `harness/tools.py` | Step 3 | `search_values`: search in the value index (FTS5 trigram + `difflib`). `ask_user`: asks the person at the terminal (in `run.py` and in `evaluate.py` alike; questions arriving at the same time come one at a time). A copy of what was found is written to the search notes / clarifications |
-| `harness/execute.py` | Steps 4–6 | `run_query`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`). `run`: real execution or cache. `format_result`: turns the result into text (20 rows). `read_forecast` and `forecast_error`: read the forecast and check its format. `surprise_note`: comparison with the forecast |
+| `harness/execute.py` | Steps 4–6 | `run_query`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`). `run`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). `remember_mistake`: the question's first mistake (for memory) |
 | `harness/answer.py` | Steps 7–9 | `finish`: the agent's `submit`. `candidates`: extra SQL queries (`write_sql`), grouping, selection. `confidence`: the confidence gate. `medium_note`. `final_check`. `consensus_answer`: the candidates' consensus for the fallback answer |
 | `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `is_repeat`: repeated calls. `compress`: compressing the context |
 | `harness/memory.py` | Step 1, after the question | Reads the database memory (the 3 most similar records by TF-IDF) and writes it: `experience/memory/<db_id>.jsonl` |
@@ -50,15 +50,9 @@ The agent makes a single tool call each turn. Tool calls are written in Qwen's o
 |---|---|---|---|
 | `search_values` | `query` | The 5 most relevant values that contain the word or are spelled similarly: `table.column = 'value'` | Step 3 |
 | `ask_user` | `question` | The user's answer (clarification). At most 5 times per question | Step 3 |
-| `execute_sql` | `sql`, forecast: `type`, `columns`, `rows`, `trust` | The real result (at most 20 rows) and a surprise note if any; or a pre-check note | Steps 4–6 |
+| `execute_sql` | `sql` | The real result (at most 20 rows; a `search_values` reminder if empty) or a pre-check note | Steps 4–6 |
 | `submit` | `sql` | The answer is returned; or an error if the SQL does not run, a medium note or a final check note | Steps 7–9 |
 
-- **Forecast:** `execute_sql(sql=..., type="rows", columns=["category", "n"], rows="2-10", trust=true)`
-  - `type` (required): `error`, `empty` or `rows`.
-  - `columns` and `rows` (optional, if `type` is `rows`): the expected columns and one of the row ranges.
-  - `trust` (optional): `true` means "I trust it", `false` "I am not sure". It does not affect the harness's decisions.
-  - For small models, `read_forecast` fixes small format mistakes (`"true"` → `true`, `'["a"]'` → `["a"]`, `358` → `"100+"`) and also accepts a nested `forecast` object.
-  - For a forecast to count as a hit, `type` must match; for `rows`, the number of columns and the row range must match too, if they were written. Column names are not compared.
 - **`search_values`:** Searches an SQLite FTS5 index built from the distinct values of text columns. The index uses trigrams (a part of a word also matches); candidates are ranked by spelling similarity with `difflib`, so a search for "Los Angles" finds "Los Angeles". The index is built once per database and stored in `data/prepared/<db_id>/values.sqlite`.
 
 ## `db/sqlite_db.py` and `db/sqlite_schema.py` functions
@@ -96,7 +90,7 @@ def run_steps(context):
         elif step["tool"] == "ask_user":
             result = tools.ask_user(question, context)              # step 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(sql, forecast, context)      # steps 4–6
+            result = execute.run_query(sql, context)                # steps 4–6
         elif context.teacher:
             return teacher_submit(step, context)                    # straight to the final check
         else:
@@ -116,7 +110,8 @@ def run_steps(context):
 | Constant | Value | Place in the flow |
 |---|---|---|
 | Tool-call budget | Agent 10, teacher half of that (5). Rejected requests count, candidate executions do not | Steps 2, 10 |
-| Budget reminder | When 2 tool calls are left, a "submit" note under the result (`BUDGET_WARNING`) | Step 2 |
+| Budget left | Written under every result; in the last 2 a "submit" reminder is added too (`BUDGET_WARNING`) | Step 2 |
+| Repeat limit | If the same call is repeated a third time, handoff (`MAX_REPEATS`) | Steps 2, 10 |
 | `ask_user` limit | 5 per question (agent and teacher combined); taken from the budget | Step 3 |
 | Number of search results | 5 | Step 3 |
 | Value index | Texts longer than 100 characters are not indexed; in one search at most 200 candidates from the index are ranked by similarity | Step 3 |
@@ -124,7 +119,6 @@ def run_steps(context):
 | Initial context | At most 16K tokens; if it overflows, the policy model (temperature 0) selects the tables the question needs, the others shrink to one line | Step 1 |
 | Values in the profile | For text columns, the 10 most frequent values (all of them if there are at most 10 distinct values), at most 40 characters; for numeric columns, only min and max | Step 1 |
 | Database memory | The 3 records most similar to the question (TF-IDF similarity) | Step 1 |
-| Row ranges (forecast) | `0`, `1`, `2-10`, `11-100`, `100+` | Steps 4, 6 |
 | Timeout / row limit | 30 seconds / 100 rows | Step 6 |
 | Result shown to the agent | At most 20 rows, at most 100 characters per cell | Step 6 |
 | Context limit | 32K tokens; if exceeded, the oldest observations are reduced to one line | Every step |
@@ -145,7 +139,7 @@ def run_steps(context):
 
 **`results/<experiment>_seed<n>.jsonl`** (one file per experiment and seed):
 - The first line is the experiment itself: experiment name, seed, dataset (`bird` / `mini_interact`), `--limit`, number of questions, all `config.py` values and the prompt texts.
-- Every following line is a question: `question_id`, `db_id`, `sql` (the answer), `label`, `answered_by` (agent / teacher), `correct` (empty if there is no correct SQL), `tool_calls`, `executions` (number of real executions), `forecasts`, `forecast_hits`, `candidates`, `clarifications`, `handoff_reason`, `steps` (every tool call and observation; the `by` field says agent or teacher), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. If the gold SQL gives an error, `gold_error` is written; if the model does not answer, `error`.
+- Every following line is a question: `question_id`, `db_id`, `sql` (the answer), `label`, `answered_by` (agent / teacher), `correct` (empty if there is no correct SQL), `tool_calls`, `executions` (number of real executions), `candidates`, `clarifications`, `handoff_reason`, `steps` (every tool call and observation; the `by` field says agent or teacher), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. If the gold SQL gives an error, `gold_error` is written; if the model does not answer, `error`.
 
 **`experience/log.jsonl`** (experience log; the agent's future training data, records accumulate; written by `agent/loop.py` when each question ends): each line is a question: time, split (`use` in use, `dev` in evaluation; `correct` is filled only in `dev`), dataset, `question_id`, `db_id`, question, evidence, gold SQL, answer SQL, `label`, `correct`, `answered_by`, `handoff_reason`, model names, seed and `messages` (the whole conversation the agent, and after a handoff the teacher, saw: system prompt, step 1 context, every tool call and observation). Only `split = train` lines are used for training. `experience/executions.jsonl` holds older records in the previous format (one line per SQL execution).
 
@@ -159,7 +153,7 @@ The system was written in small stages. Each stage added a single part, was test
 |---|---|---|
 | Phase 1-A: Foundation (no model) | 1–3 | Database layer; BIRD dev data and scoring; initial context |
 | Phase 1-B1: First working agent | 4–8 | Running the model; tool-free single SQL (baseline); agent loop and `submit`; `execute_sql`; pre-check |
-| Phase 1-B2: Trial loop | 9–15 | Repeat guardrail and cache; trimming long results; compressing the context; `search_values`; agent forecast and surprise note |
+| Phase 1-B2: Trial loop | 9–15 | Repeat guardrail and cache; trimming long results; compressing the context; `search_values` |
 | Phase 1-B3: Verifying the answer | 17–21 | Final check; candidates; adaptive rule (filling up to 8); confidence gate; medium note |
 | Phase 1-B4: Help and memory | 22–25 | Handoff (teacher); `ask_user`; database memory |
 | Phase 1 results | 29 | Measurement with the full system |

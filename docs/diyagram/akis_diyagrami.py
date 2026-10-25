@@ -31,9 +31,9 @@ def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-4B',
       '<b>Şimdi:</b> eğitilmemiş. <b>İleride:</b> harness içinde, experience log\'la SFT → on-policy distillation → RL',
-      '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir; SQL çalıştırmadan önce sonucu tahmin eder (forecast)'),
+      '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir: değer arar, SQL dener, sonuca bakar, gerekirse sorar'),
      ('harness','HARNESS (LLM yok)','düz Python',
-      'Context preparation, search_values, ask_user, pre-check, compare, candidate selection, confidence gate, final check',
+      'Context preparation, search_values, ask_user, pre-check, sonucu metne çevirme, candidate selection, confidence gate, final check',
       '<b>Guardrail\'ler:</b> aynı çağrı tekrarı yok · uzun sonuç kırpılır · bağlam sıkıştırılır · budget azalınca submit hatırlatması'),
      ('db','GERÇEK VERİTABANI','SQLite, salt okunur',
       '<i>execute_sql</i> tool\'u olarak sunulur',
@@ -96,13 +96,13 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Mevcut durumu düşün</li><li>TEK bir tool call seç</li>
 <li>Soru belirsizse kullanıcıya sor (<i>ask_user</i>)</li>
-<li>SQL çalıştırmadan önce <b>forecast</b> yaz:<br><i>type</i>: hata / boş / dolu<br>isteğe bağlı: <i>columns</i>, <i>rows</i>, <i>trust</i></li>
+<li>SQL dene, gerçek sonuca bak, düzelt</li>
 <li>Observation\'ı oku</li><li><i>submit</i>\'e kadar tekrarla</li></ul>
 <p>Budget: en fazla 10 tool call</p></div>''')
 
 # handoff from agent (top)
 arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
-label(600,524,'<b>Handoff:</b> budget bitti · final check 2 kez geçmedi','t')
+label(600,524,'<b>Handoff:</b> budget bitti · 3 tekrar · 2 kez final check','t')
 
 node(822,546,324,118,'harness','search_values · ask_user','Adım 1\'in göstermediği bir değerin yazılışı ya da kullanıcının cevabı · kopyası adım 7 için saklanır',tsize=17)
 node(1226,560,296,92,'io','Kullanıcı','ask_user sorusunu terminalde cevaplar',shape='pill',tsize=19)
@@ -112,7 +112,7 @@ arrow([(390,584),(818,584)],'k')
 arrow([(822,630),(394,630)],'b'); label(606,630,'değerin yazılışı · kullanıcının cevabı','b')
 
 node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN)<br>3. Daha önce çalıştı mı (cache)?',tsize=18)
-arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql isteği + agent forecast','k')
+arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql isteği','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'kontrol hatası ya da cache\'ten sonuç','b')
 
 node(1226,700,296,92,'db','execute_sql','Sorguyu çalıştırır, salt okunur',tsize=19)
@@ -120,9 +120,9 @@ arrow([(1146,746),(1222,746)],'k'); label(1186,746,'çalıştır','k')
 
 
 
-node(822,900,324,104,'harness','Compare','Gerçek sonuç ↔ agent forecast · tutmadıysa <b>surprise note</b>',tsize=18)
+node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boşsa: değerin yazılışını <i>search_values</i> ile kontrol et',tsize=18)
 arrow([(1440,792),(1440,950),(1150,950)],'k')
-arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç + surprise note','b')
+arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
 node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (prompt: soru + evidence + kullanıcı cevapları + şema + search notes; agent\'ın SQL\'i yok) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
 arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
@@ -138,7 +138,7 @@ arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low ya da 2. kez medi
 
 node(1574,1130,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
 
-node(822,1340,324,112,'decision','Final check','Çalıştırılmadıysa çalıştırır · salt okuma + var olan tablo/sütun · boşsa: forecast “boş” muydu?',shape='hex',tsize=18)
+node(822,1340,324,112,'decision','Final check','Çalıştırılmadıysa çalıştırır · salt okuma + var olan tablo/sütun · boşsa: agent bunu görmüş müydü?',shape='hex',tsize=18)
 arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
 arrow([(822,1396),(394,1396)],'p'); label(606,1396,'geçmedi → çalışmaya devam','p')
 
@@ -170,7 +170,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool'u kullanacağına kendisi karar verir, soru belirsizse kullanıcıya sorar ve her SQL'i çalıştırmadan önce forecast yazar; gerçek çalıştırma forecast'i denetler (predict). Cevap candidate grupları arasından consensus ile seçilir (gate) ve gönderilen her şey gerçekten çalıştırılmış olur (settle). Takılırsa agent işi teacher'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log'a yazılır; agent ileride bununla eğitilir.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, soru belirsizse kullanıcıya sorar. Cevap candidate grupları arasından consensus ile seçilir ve gönderilen her şey gerçekten çalıştırılmış olur. Takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
@@ -192,7 +192,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): forecast ile denetlenen agent loop, candidate selection ve handoff ile agentic Text-to-SQL</div>
+<div class="title">Predict – Gate – Settle (PGS): agent loop, candidate selection ve handoff ile agentic Text-to-SQL</div>
 <div class="sub">Tek bir kullanıcı sorusu için olanlar. Her sütun bir bileşendir; numaralar AGENTIC_FLOW.md'deki adımlardır.</div>
 {''.join(divs)}
 </div></body></html>'''

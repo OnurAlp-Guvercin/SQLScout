@@ -1,5 +1,5 @@
 """Guardrail'ler: harness'ın agent'ı küçük modellerin tipik hatalarından koruyan kuralları (her adım): bozuk çıktının
-reddi, aynı çağrının tekrarı, bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/execute.py'de (trim_rows)."""
+reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/execute.py'de (trim_rows)."""
 
 import json
 import uuid
@@ -13,7 +13,7 @@ SHORTENED = "[Old result, shortened] "
 
 def read_tool_call(reply, tools):
     """Modelin cevabını tek bir tool call olarak okur. Okunamazsa step["error"] dolu olur: istek reddedilir,
-    hata agent'a döner ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
+    hata agent'a gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
         step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
@@ -39,22 +39,14 @@ def read_tool_call(reply, tools):
     except json.JSONDecodeError:
         args = None
     if not isinstance(args, dict):
-        # Model sunucusu geçmişteki argümanları JSON nesnesi olarak okur; bozuk hâli konuşmaya konursa sonraki istek hata verir.
+        # Model sunucusu geçmişteki argument'ları JSON object olarak okur; bozuk hâli konuşmaya konursa sonraki istek hata verir.
         step["arguments"] = "{}"
         step["error"] = f"Rejected: the arguments of '{step['tool']}' are not a valid JSON object."
         return step
-    if step["tool"] == "execute_sql":  # forecast alanları tek bir nesnede toplanır: args = {"sql", "forecast"}
-        args = {"sql": args.get("sql"), "forecast": execute.read_forecast(args)}
-    fields = {**args.get("forecast", {}), **args}  # execute_sql'in zorunlu "type" alanı forecast'in içinde
-    missing = [name for name in schema["required"] if is_empty(fields.get(name))]
+    missing = [name for name in schema["required"] if is_empty(args.get(name))]
     if missing:
         step["error"] = f"Rejected: '{step['tool']}' needs a non-empty value for: {', '.join(missing)}."
         return step
-    if step["tool"] == "execute_sql":
-        problem = execute.forecast_error(args["forecast"])
-        if problem:
-            step["error"] = f"Rejected: the forecast is not valid: {problem}."
-            return step
 
     step["args"] = args
     return step
@@ -64,30 +56,27 @@ def is_empty(value):
     return value is None or (isinstance(value, str) and not value.strip())
 
 
-def is_repeat(step, context):
-    return previous_result(step, context) is not None
-
-
-def repeat_note(step, context):
-    return ("Not run again: you already made this exact call and its result will not change. Try a different query, "
-            "or submit your answer. Its result was:\n" + previous_result(step, context))
-
-
-def previous_result(step, context):
-    """Aynı çağrı daha önce yapıldıysa onun sonucu, yoksa None. Aynı tool ve aynı argümanlar "aynı çağrı"dır;
-    execute_sql'de yalnızca SQL'e bakılır (forecast farklı olsa da tekrar). submit hiç tekrar sayılmaz."""
+def earlier_calls(step, context):
+    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
+    boşlukları önemsenmez. submit hiç tekrar sayılmaz."""
     if step["tool"] == "submit":
-        return None
+        return []
+    same = []
     for old in context.steps:
         if old["tool"] != step["tool"] or not old["args"]:
             continue
         if step["tool"] == "execute_sql":
-            same = execute.sql_key(old["args"]["sql"]) == execute.sql_key(step["args"]["sql"])
+            match = execute.sql_key(old["args"]["sql"]) == execute.sql_key(step["args"]["sql"])
         else:
-            same = old["args"] == step["args"]
-        if same:
-            return old["result"]
-    return None
+            match = old["args"] == step["args"]
+        if match:
+            same.append(old)
+    return same
+
+
+def repeat_note(earlier):
+    return ("Not run again: you already made this exact call and its result will not change. Try a different query, "
+            "or submit your answer. Its result was:\n" + earlier[0]["result"])
 
 
 def compress(context):

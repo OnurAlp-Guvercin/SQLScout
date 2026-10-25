@@ -1,4 +1,4 @@
-"""agent/llm.py testleri (aşama 4). API'ye gerçek istek atan test, API anahtarı yoksa atlanır."""
+"""agent/llm.py testleri (aşama 4). API'ye gerçek request atan test, API key yoksa atlanır."""
 
 import io
 import time
@@ -78,7 +78,7 @@ def test_count_tokens():
     assert llm.count_tokens("SELECT name FROM users") > llm.count_tokens("SELECT 1")
 
 
-@pytest.mark.skipif(llm.api_key() is None, reason="API anahtarı yok (.env'de OPENROUTER_API_KEY)")
+@pytest.mark.skipif(llm.api_key() is None, reason="API key yok (.env'de OPENROUTER_API_KEY)")
 def test_api_answers():
     reply = llm.chat([{"role": "user", "content": "Reply with exactly one word: OK"}], temperature=0.0, max_tokens=5)
     assert reply["text"].strip()

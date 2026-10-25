@@ -20,7 +20,7 @@ EVAL_WORKERS = 8  # aynı anda çalışan soru sayısı; yerel sunucu bunları b
 # POLICY_MODEL = "qwen/qwen3.5-9b", TEACHER_MODEL = "qwen/qwen3.6-27b", POLICY_PROVIDER = "deepinfra",
 # SEND_SEED = True, EVAL_WORKERS = 4. Makale rakamları sonda yerel Qwen3.5-4B ile alınır.
 LLM_URL = "http://127.0.0.1:8080/v1"
-LLM_API_KEY_NAME = "OPENROUTER_API_KEY"  # anahtar .env dosyasında durur; yerel sunucuda gerekmez
+LLM_API_KEY_NAME = "OPENROUTER_API_KEY"  # key .env dosyasında durur; yerel sunucuda gerekmez
 POLICY_MODEL = "Qwen/Qwen3.5-0.8B"
 TEACHER_MODEL = "Qwen/Qwen3.5-0.8B"  # handoff'tan sonra (adım 10)
 POLICY_PROVIDER = None  # API'de policy modelini bf16 çalıştıran sağlayıcıya sabitler ("deepinfra")
@@ -34,7 +34,8 @@ LLM_RETRIES = 8  # geçici hatada bekleme 5, 10, 20, ... 320 sn
 
 # Agent loop (adım 2)
 MAX_TOOL_CALLS = 10  # agent'ın tool-call budget'ı (teacher bunun yarısını alır); reddedilen ve bozuk çağrılar da sayılır
-BUDGET_WARNING = 2  # bu kadar tool call kalınca agent'a "submit et" hatırlatması
+BUDGET_WARNING = 2  # kalan budget her sonucun altında yazar; bu kadar kalınca "submit et" hatırlatması da eklenir
+MAX_REPEATS = 3  # aynı çağrı bu kadar kez tekrarlanırsa agent takılmış sayılır: handoff
 
 # Guardrail'ler (her adım)
 SHOWN_ROWS = 20  # agent'ın gördüğü en fazla satır
@@ -46,9 +47,6 @@ SEARCH_RESULTS = 5
 SEARCH_SIMILARITY = 0.8  # difflib benzerliği
 SEARCH_CANDIDATES = 200  # FTS5 index'ten benzerlik sıralamasına giden en fazla değer
 INDEX_VALUE_MAX_CHARS = 100  # bundan uzun metinler (ör. yorum gövdeleri) değer index'ine girmez
-
-# Agent forecast (adım 4, 6)
-ROW_RANGES = ["0", "1", "2-10", "11-100", "100+"]
 
 # Veritabanı: gerçek çalıştırma (adım 6)
 QUERY_TIMEOUT_SECONDS = 30

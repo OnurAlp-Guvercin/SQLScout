@@ -56,3 +56,7 @@ def test_write_sql_sends_system_prompt_and_context(monkeypatch):
     assert sent["messages"][0] == {"role": "system", "content": prompts.WRITE_SQL}
     assert sent["messages"][1] == {"role": "user", "content": "Database schema ... Question: how many?"}
     assert sent["seed"] == 3
+
+
+def test_extract_sql_from_unclosed_block():
+    assert answer.extract_sql("```sql\nSELECT 1") == "SELECT 1"
