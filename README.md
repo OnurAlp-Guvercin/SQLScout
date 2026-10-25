@@ -41,16 +41,16 @@ All decisions and the work they are based on: [docs/en/AGENTIC_FLOW.md](docs/en/
 
 ## Code
 
-Each step of the flow lives in a single file; `agent/loop.py` only dispatches.
+Each step of the flow lives in a single file, and each of the agent's tools in its own file under `harness/tools/`; `agent/loop.py` only dispatches.
 
 | File | Step | What it does |
 |---|---|---|
 | `agent/loop.py` | 2, 10 | The flow itself: each tool is one branch that goes to one file; handoff to the teacher, fallback answer |
 | `agent/prompts.py`, `agent/llm.py`, `agent/context.py` | | Everything the model sees (prompts and tool definitions), talking to the model, the state of one question |
 | `harness/prepare.py` | 1 | Initial context; table selection when the schema is too long |
-| `harness/tools.py` | 3 | `search_values`, `ask_user` |
-| `harness/execute.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
-| `harness/answer.py` | 7–9 | Candidates and selection, confidence gate, medium note, final check |
+| `harness/tools/search_values.py`, `harness/tools/ask_user.py` | 3 | Searching values; asking the user |
+| `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
+| `harness/tools/submit.py` | 7–9 | Candidates and selection, confidence gate, medium note, final check |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
 | `harness/memory.py` | 1 | Database memory |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |

@@ -1,12 +1,12 @@
 """Guardrail'ler: harness'ın agent'ı küçük modellerin tipik hatalarından koruyan kuralları (her adım): bozuk çıktının
-reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/execute.py'de (trim_rows)."""
+reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/tools/execute_sql.py'de (trim_rows)."""
 
 import json
 import uuid
 
 import config
 from agent import llm
-from harness import execute
+from harness.tools import execute_sql
 
 SHORTENED = "[Old result, shortened] "
 
@@ -66,7 +66,7 @@ def earlier_calls(step, context):
         if old["tool"] != step["tool"] or not old["args"]:
             continue
         if step["tool"] == "execute_sql":
-            match = execute.sql_key(old["args"]["sql"]) == execute.sql_key(step["args"]["sql"])
+            match = execute_sql.sql_key(old["args"]["sql"]) == execute_sql.sql_key(step["args"]["sql"])
         else:
             match = old["args"] == step["args"]
         if match:

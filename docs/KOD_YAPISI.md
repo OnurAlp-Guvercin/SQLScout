@@ -4,7 +4,7 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 ## Kurallar
 
-- **Her adım tek bir dosyada.** Bir şeyi anlamak için dosyadan dosyaya gidilmez: akışın bir ya da birkaç ardışık adımı bir dosyadadır. Hangi adımın nerede olduğu aşağıdaki haritada.
+- **Her adım tek bir dosyada, her tool kendi dosyasında.** Bir şeyi anlamak için dosyadan dosyaya gidilmez: agent'ın her tool'u `harness/tools/` altında kendi adını taşıyan dosyadadır (giriş fonksiyonu `run`). Hangi adımın nerede olduğu aşağıdaki haritada.
 - **Dosyalar kısa.** Kabaca 200 satırı geçen dosya bölünür.
 - **Her dosyanın başında 1–2 satırlık açıklama** olur: dosyanın ne yaptığı ve akışta hangi adım olduğu.
 - **Düz kod.** Normal `for` ve `if` kullanılır. Kısa fonksiyonlar, ne yaptığını söyleyen isimler. Okunması zorlaşıyorsa liste üreteci yerine düz döngü yazılır.
@@ -18,15 +18,16 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 | Dosya | Akıştaki yeri | Ne yapar |
 |---|---|---|
-| `agent/loop.py` | Adım 2, 10 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → memory. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal tek bir dosyaya gider. `next_step`: modelden sıradaki tool call. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (adım 7'nin seçtiği SQL → candidate consensus'u → en son çalışan SQL). `write_experience`: her soru bitince experience log |
+| `agent/loop.py` | Adım 2, 10 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → memory. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider. `next_step`: modelden sıradaki tool call. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (adım 7'nin seçtiği SQL → candidate consensus'u → en son çalışan SQL). `write_experience`: her soru bitince experience log |
 | `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, candidate, tablo seçimi, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
 | `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Yerel `mlx_lm.server` ya da OpenRouter; ikisi de OpenAI biçimi, adres `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
 | `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, database memory, evidence, soru). Bağlam 16K'yı aşarsa `select_tables`: soruya gereken tabloları LLM seçer. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
-| `harness/tools.py` | Adım 3 | `search_values`: değer index'inde arama (FTS5 trigram + `difflib`). `ask_user`: soruyu terminaldeki kişiye sorar (`run.py`'de de `evaluate.py`'de de; aynı anda gelen sorular tek tek). Bulunanların kopyası search notes'a / clarification'lara yazılır |
-| `harness/execute.py` | Adım 4–6 | `run_query`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`). `run`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). `remember_mistake`: sorudaki ilk hata (memory için) |
-| `harness/answer.py` | Adım 7–9 | `finish`: agent'ın `submit`'i. `candidates`: ek SQL'ler (`write_sql`), gruplama, seçim. `confidence`: confidence gate. `medium_note`. `final_check`. `consensus_answer`: fallback answer için candidate consensus'u |
-| `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `is_repeat`: aynı çağrının tekrarı. `compress`: bağlamın sıkıştırılması |
+| `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`); bulunanların kopyası search notes'a yazılır |
+| `harness/tools/ask_user.py` | Adım 3 | Soruyu terminaldeki kişiye sorar (`run.py`'de de `evaluate.py`'de de; aynı anda gelen sorular tek tek); cevap clarification olarak saklanır |
+| `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). `remember_mistake`: sorudaki ilk hata (memory için) |
+| `harness/tools/submit.py` | Adım 7–9 | `run`: agent'ın `submit`'i. `candidates`: ek SQL'ler (`write_sql`), gruplama, seçim. `confidence`: confidence gate. `medium_note`. `final_check`. `consensus_answer`: fallback answer için candidate consensus'u |
+| `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `earlier_calls`: aynı çağrının tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
 | `harness/memory.py` | Adım 1, soru bittikten sonra | Database memory'yi okur (TF-IDF ile en benzer 3 kayıt) ve yazar: `experience/memory/<db_id>.jsonl` |
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
@@ -78,21 +79,24 @@ def run_steps(context):
         guards.compress(context)
         step = next_step(context)                                   # adım 2
         context.calls_left -= 1
+        earlier = guards.earlier_calls(step, context)
 
         if step["error"]:                                           # tool call okunamadı: reddedilir
             result = step["error"]
-        elif guards.is_repeat(step, context):                       # aynı çağrı: önceki sonuç agent'a gider
-            result = guards.repeat_note(step, context)
+        elif len(earlier) >= config.MAX_REPEATS:                    # aynı çağrının 3. tekrarı: takıldı → adım 10
+            return None
+        elif earlier:                                               # aynı çağrı: önceki sonuç agent'a gider
+            result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
-            result = tools.search_values(query, context)            # adım 3
+            result = search_values.run(query, context)              # adım 3
         elif step["tool"] == "ask_user":
-            result = tools.ask_user(question, context)              # adım 3
+            result = ask_user.run(question, context)                # adım 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(sql, context)                # adım 4–6
+            result = execute_sql.run(sql, context)                  # adım 4–6
         elif context.teacher:
             return teacher_submit(step, context)                    # doğrudan final check
         else:
-            outcome = answer.finish(sql, context)                   # adım 7–9
+            outcome = submit.run(sql, context)                      # adım 7–9
             if outcome["done"]:
                 return context.answer(..., "ok")
             if outcome["handoff"]:

@@ -1,5 +1,5 @@
-"""Adım 4–6: execute_sql. SQL önce ucuz kontrollerden geçer (pre-check), sonra çalıştırılır (ya da cache'ten gelir) ve
-sonuç agent'ın okuyacağı metne çevrilir. Candidate'ler ve final check de SQL'i run ile çalıştırır."""
+"""Adım 4–6: execute_sql tool'u. SQL önce ucuz kontrollerden geçer (pre-check), sonra çalıştırılır (ya da cache'ten gelir) ve
+sonuç agent'ın okuyacağı metne çevrilir. Candidate'ler ve final check de SQL'i run_sql ile çalıştırır."""
 
 import re
 
@@ -9,13 +9,13 @@ from db import sqlite_db, sqlite_schema
 EMPTY_HINT = "If the query filters on a text value, check how that value is written with search_values."
 
 
-def run_query(sql, context):
+def run(sql, context):
     """Agent'ın execute_sql çağrısı. Return: agent'a gidecek metin."""
     note = check(context.db_path, sql)  # adım 5
     if note:
         remember_mistake(sql, note, context)
         return note
-    result = run(sql, context)  # adım 6
+    result = run_sql(sql, context)  # adım 6
     context.ran_by_agent.add(sql_key(sql))
     text = format_result(result)
     if not result["ok"] or result["row_count"] == 0:
@@ -51,7 +51,7 @@ def column_hint(db_path, error):
     return f". A column with this name exists in: {', '.join(tables)}."
 
 
-def run(sql, context):
+def run_sql(sql, context):
     """Gerçek sonuç: aynı SQL bu soruda daha önce çalıştıysa cache'ten, yoksa veritabanından."""
     key = sql_key(sql)
     if key not in context.cache:

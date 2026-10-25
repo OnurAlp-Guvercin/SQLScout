@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import config
 from agent import prompts
-from harness import execute, guards
+from harness import guards
+from harness.tools import execute_sql
 
 TOOLS = [prompts.SUBMIT]
 
@@ -79,7 +80,7 @@ def test_repeat_rules():
 
 def test_long_rows_and_cells_are_trimmed():
     rows = [(i, "x" * 150, None) for i in range(25)]
-    trimmed = execute.trim_rows(rows)
+    trimmed = execute_sql.trim_rows(rows)
     assert len(trimmed) == config.SHOWN_ROWS
     assert trimmed[0] == ["0", "x" * config.SHOWN_CELL_CHARS + "...", "NULL"]
 

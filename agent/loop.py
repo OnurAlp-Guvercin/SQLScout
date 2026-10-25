@@ -1,6 +1,6 @@
 """Agent loop: akışın kendisi. Agent her turda tek bir tool çağırır; harness onu çalıştırır ve sonucu agent'a geri
-verir. Her tool bir dal, her dal tek bir dosyaya gider: search_values ve ask_user → harness/tools.py (adım 3),
-execute_sql → harness/execute.py (adım 4–6), submit → harness/answer.py (adım 7–9).
+verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/tools/): search_values ve ask_user
+(adım 3), execute_sql (adım 4–6), submit (adım 7–9).
 Agent takılırsa (budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci medium, final check 2 kez geçmedi)
 harness işi teacher'a verir (adım 10): teacher aynı döngüyle, yarım budget'la devam eder.
 Soru bitince database memory ve experience log yazılır."""
@@ -13,7 +13,8 @@ from pathlib import Path
 import config
 from agent import llm, prompts
 from agent.context import Context
-from harness import answer, execute, guards, memory, prepare, tools
+from harness import guards, memory, prepare
+from harness.tools import ask_user, execute_sql, search_values, submit
 
 log_lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır; log satırları birbirine karışmasın
 
@@ -73,15 +74,15 @@ def run_steps(context):
         elif earlier:  # aynı çağrı (submit hariç): çalıştırılmaz, önceki sonuç agent'a gider
             result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
-            result = tools.search_values(step["args"]["query"], context)  # adım 3
+            result = search_values.run(step["args"]["query"], context)  # adım 3
         elif step["tool"] == "ask_user":
-            result = tools.ask_user(step["args"]["question"], context)  # adım 3
+            result = ask_user.run(step["args"]["question"], context)  # adım 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(step["args"]["sql"], context)  # adım 4–6
+            result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
         elif context.teacher:  # teacher'ın submit'i candidate'lere gitmez, doğrudan final check'e gider
             return teacher_submit(step, context)
         else:
-            outcome = answer.finish(step["args"]["sql"], context)  # adım 7–9
+            outcome = submit.run(step["args"]["sql"], context)  # adım 7–9
             if outcome["done"]:
                 context.add(step, "Accepted.")
                 return context.answer(context.selected_sql, "ok")
@@ -122,11 +123,11 @@ def teacher_submit(step, context):
     """Teacher'ın cevabı final check'ten geçerse ok. Geçmezse tekrar denenmez: SQL çalışıyorsa low_confidence ile
     return edilir (ör. beklenmeyen boş sonuç), hiç çalışmıyorsa fallback answer."""
     sql = step["args"]["sql"]
-    note = answer.final_check(sql, context)
+    note = submit.final_check(sql, context)
     context.add(step, note or "Accepted.")
     if note is None:
         return context.answer(sql, "ok", answered_by="teacher")
-    if answer.result_of(sql, context):
+    if submit.result_of(sql, context):
         return context.answer(sql, "low_confidence", answered_by="teacher")
     return fallback_answer(context)
 
@@ -134,7 +135,7 @@ def teacher_submit(step, context):
 def fallback_answer(context):
     """Hiçbir cevap kabul edilmediyse: en son seçilen SQL, yoksa candidate'lerin consensus'u, o da yoksa en son
     hatasız çalışan SQL (low_confidence); hiçbiri yoksa cevap yok (no_answer)."""
-    sql = context.selected_sql or answer.consensus_answer(context) or context.last_ok_sql
+    sql = context.selected_sql or submit.consensus_answer(context) or context.last_ok_sql
     if sql is None:
         return context.answer(None, "no_answer")
     return context.answer(sql, "low_confidence")

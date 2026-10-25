@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 
 import config
-from harness import execute
+from harness.tools import execute_sql
 
 memory_lock = threading.Lock()
 
@@ -54,7 +54,7 @@ def write(context, answer):
     if answer["label"] != "ok" or context.first_mistake is None:
         return
     # SQL değişmediyse kayıt bir düzeltme öğretmez, bağlama gürültü katar.
-    if execute.sql_key(context.first_mistake["sql"]) == execute.sql_key(answer["sql"]):
+    if execute_sql.sql_key(context.first_mistake["sql"]) == execute_sql.sql_key(answer["sql"]):
         return
     record = {"question": context.question, "wrong_sql": context.first_mistake["sql"],
               "note": context.first_mistake["note"], "answer_sql": answer["sql"]}

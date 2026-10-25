@@ -6,7 +6,7 @@ This document describes how the code is organized, how it is written and in what
 
 ## Rules
 
-- **Each step lives in a single file.** You do not jump from file to file to understand something: one or a few consecutive steps of the flow are in one file. Which step lives where is shown in the map below.
+- **Each step lives in a single file, each tool in its own file.** You do not jump from file to file to understand something: each of the agent's tools is in `harness/tools/`, in a file named after the tool (entry function `run`). Which step lives where is shown in the map below.
 - **Files are short.** A file that grows past roughly 200 lines is split.
 - **Each file starts with a 1–2 line description**: what the file does and which step of the flow it is.
 - **Plain code.** Ordinary `for` and `if` are used. Short functions, names that say what they do. If a list comprehension makes the code harder to read, a plain loop is written.
@@ -20,15 +20,16 @@ This document describes how the code is organized, how it is written and in what
 
 | File | Place in the flow | What it does |
 |---|---|---|
-| `agent/loop.py` | Steps 2, 10 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → memory. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to a single file. `next_step`: the next tool call from the model. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (the SQL selected in step 7 → the candidates' consensus → the last SQL that ran). `write_experience`: the experience log, when each question ends |
+| `agent/loop.py` | Steps 2, 10 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → memory. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`. `next_step`: the next tool call from the model. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (the SQL selected in step 7 → the candidates' consensus → the last SQL that ran). `write_experience`: the experience log, when each question ends |
 | `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, candidate, table selection, the teacher's takeover note) and the tool definitions (`TOOLS`) |
 | `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). A local `mlx_lm.server` or OpenRouter; both use the OpenAI format, the address is in `config.py`. To try it: `python -m agent.llm "question"` |
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
 | `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, database memory, evidence, question). If the context exceeds 16K, `select_tables`: an LLM selects the tables the question needs. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
-| `harness/tools.py` | Step 3 | `search_values`: search in the value index (FTS5 trigram + `difflib`). `ask_user`: asks the person at the terminal (in `run.py` and in `evaluate.py` alike; questions arriving at the same time come one at a time). A copy of what was found is written to the search notes / clarifications |
-| `harness/execute.py` | Steps 4–6 | `run_query`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`). `run`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). `remember_mistake`: the question's first mistake (for memory) |
-| `harness/answer.py` | Steps 7–9 | `finish`: the agent's `submit`. `candidates`: extra SQL queries (`write_sql`), grouping, selection. `confidence`: the confidence gate. `medium_note`. `final_check`. `consensus_answer`: the candidates' consensus for the fallback answer |
-| `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `is_repeat`: repeated calls. `compress`: compressing the context |
+| `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`); a copy of what was found is written to the search notes |
+| `harness/tools/ask_user.py` | Step 3 | Asks the person at the terminal (in `run.py` and in `evaluate.py` alike; questions arriving at the same time come one at a time); the answer is stored as a clarification |
+| `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). `remember_mistake`: the question's first mistake (for memory) |
+| `harness/tools/submit.py` | Steps 7–9 | `run`: the agent's `submit`. `candidates`: extra SQL queries (`write_sql`), grouping, selection. `confidence`: the confidence gate. `medium_note`. `final_check`. `consensus_answer`: the candidates' consensus for the fallback answer |
+| `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `earlier_calls`: repeated calls (handoff on the third repeat). `compress`: compressing the context |
 | `harness/memory.py` | Step 1, after the question | Reads the database memory (the 3 most similar records by TF-IDF) and writes it: `experience/memory/<db_id>.jsonl` |
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
@@ -80,21 +81,24 @@ def run_steps(context):
         guards.compress(context)
         step = next_step(context)                                   # step 2
         context.calls_left -= 1
+        earlier = guards.earlier_calls(step, context)
 
         if step["error"]:                                           # tool call could not be read: rejected
             result = step["error"]
-        elif guards.is_repeat(step, context):                       # same call: the earlier result is returned
-            result = guards.repeat_note(step, context)
+        elif len(earlier) >= config.MAX_REPEATS:                    # third repeat of the same call: stuck → step 10
+            return None
+        elif earlier:                                               # same call: the earlier result is returned
+            result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
-            result = tools.search_values(query, context)            # step 3
+            result = search_values.run(query, context)              # step 3
         elif step["tool"] == "ask_user":
-            result = tools.ask_user(question, context)              # step 3
+            result = ask_user.run(question, context)                # step 3
         elif step["tool"] == "execute_sql":
-            result = execute.run_query(sql, context)                # steps 4–6
+            result = execute_sql.run(sql, context)                  # steps 4–6
         elif context.teacher:
             return teacher_submit(step, context)                    # straight to the final check
         else:
-            outcome = answer.finish(sql, context)                   # steps 7–9
+            outcome = submit.run(sql, context)                      # steps 7–9
             if outcome["done"]:
                 return context.answer(..., "ok")
             if outcome["handoff"]:

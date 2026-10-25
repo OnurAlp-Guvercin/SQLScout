@@ -5,7 +5,8 @@ import json
 import config
 from agent import loop
 from agent.context import Context
-from harness import answer, memory
+from harness import memory
+from harness.tools import submit
 from tests.fakes import call_reply, execute_reply, submit_reply, text_reply, observation
 
 EMPTY_SQL = "SELECT id FROM items WHERE city = 'Paris'"
@@ -50,7 +51,7 @@ def test_clarifications_go_into_candidate_prompt(db):
     context = Context("How many items?", "", db)
     context.messages = [{}, {"content": "schema and question"}]
     context.clarifications.append({"question": "Count or sum?", "answer": "count"})
-    assert answer.candidate_prompt(context).endswith("The user clarified the question:\n- Q: Count or sum? A: count")
+    assert submit.candidate_prompt(context).endswith("The user clarified the question:\n- Q: Count or sum? A: count")
 
 
 def test_corrected_mistake_is_remembered_for_similar_question(db, fake_model):

@@ -29,7 +29,7 @@ class Context:
     teacher: bool = False  # handoff'tan sonra True: tool call'ları teacher yapar
     calls: int = 0  # soru boyunca toplam tool call (agent + teacher); sonuç dosyasına yazılır
     calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden (yarım) dolar
-    cache: dict = field(default_factory=dict)  # execute.sql_key(sql) → gerçek sonuç (adım 5)
+    cache: dict = field(default_factory=dict)  # execute_sql.sql_key(sql) → gerçek sonuç (adım 5)
     ran_by_agent: set = field(default_factory=set)  # agent'ın execute_sql ile çalıştırıp sonucunu gördüğü SQL'ler
     search_notes: list = field(default_factory=list)  # search sonuçlarının candidate prompt'u için kopyası
     clarifications: list = field(default_factory=list)  # ask_user soruları ve kullanıcının cevapları

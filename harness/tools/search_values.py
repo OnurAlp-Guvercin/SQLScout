@@ -1,8 +1,6 @@
-"""Adım 3: bilgi toplama tool'ları.
-search_values: bir değerin veritabanında nasıl yazıldığını bulur. Değerler, her veritabanı için bir kez kurulan bir
-SQLite FTS5 index'inde aranır (data/prepared/<db_id>/values.sqlite); index trigram'lıdır (kelimenin bir parçası da
-eşleşir), adaylar difflib ile yazım benzerliğine göre sıralanır.
-ask_user: soruyu terminaldeki kişiye sorar. İkisinin sonucunun bir kopyası candidate prompt'una girer (adım 7)."""
+"""Adım 3: search_values tool'u. Bir değerin veritabanında nasıl yazıldığını bulur. Değerler, her veritabanı için bir
+kez kurulan bir SQLite FTS5 index'inde aranır (data/prepared/<db_id>/values.sqlite); index trigram'lıdır (kelimenin bir
+parçası da eşleşir), adaylar difflib ile yazım benzerliğine göre sıralanır."""
 
 import difflib
 import sqlite3
@@ -15,26 +13,15 @@ from db.sqlite_db import connect, quote
 from db.sqlite_schema import show_name
 
 index_lock = threading.Lock()
-terminal_lock = threading.Lock()
 
 
-def search_values(query, context):
-    """Agent'a dönecek metin. Bir şey bulunduysa bir kopyası search notes'a yazılır (candidate'ler için)."""
+def run(query, context):
+    """Return: agent'a gidecek metin. Bir şey bulunduysa bir kopyası search notes'a yazılır (candidate'ler için)."""
     matches = find_values(context.db_path, query)
     text = show_values(query, matches)
     if matches:
         context.search_notes.append(text)
     return text
-
-
-def ask_user(question, context):
-    """Soruyu terminaldeki kişiye sorar (run.py'de de evaluate.py'de de); cevap clarification olarak saklanır."""
-    if len(context.clarifications) >= config.MAX_ASK_USER:
-        return f"Rejected: you can ask the user at most {config.MAX_ASK_USER} times for one question."
-    with terminal_lock:  # evaluate.py soruları aynı anda çalıştırır; sorular terminale tek tek gelsin
-        answer = input(f"\nQuestion: {context.question}\nAgent asks: {question}\nYour answer: ").strip()
-    context.clarifications.append({"question": question, "answer": answer})
-    return f"User's answer: {answer}"
 
 
 def find_values(db_path, text):

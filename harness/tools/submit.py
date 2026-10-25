@@ -1,4 +1,4 @@
-"""Adım 7–9: submit edilen SQL'den cevap seçilir. Aynı model tool'suz ek SQL'ler (candidate) yazar; hepsi gerçek
+"""Adım 7–9: submit tool'u. Submit edilen SQL'den cevap seçilir. Aynı model tool'suz ek SQL'ler (candidate) yazar; hepsi gerçek
 sonuçlarına göre gruplanır ve en kalabalık grup seçilir (adım 7). Confidence gate grubun büyüklüğüne bakar (adım 8);
 high ise cevap final check'ten geçer (adım 9)."""
 
@@ -7,14 +7,14 @@ from concurrent.futures import ThreadPoolExecutor
 
 import config
 from agent import llm, prompts
-from harness import execute
+from harness.tools import execute_sql
 
 
-def finish(sql, context):
+def run(sql, context):
     """Agent'ın submit'i. Return: {"done": cevap kabul edildi mi, "note": agent'a dönecek not, "handoff": nedeni}.
     Submit edilen SQL çalışmıyorsa candidate üretilmez; hata agent'a gider."""
     if result_of(sql, context) is None:
-        error = execute.check(context.db_path, sql) or execute.run(sql, context)["error"]
+        error = execute_sql.check(context.db_path, sql) or execute_sql.run_sql(sql, context)["error"]
         return {"done": False, "note": f"Submit rejected: your query does not run: {error}", "handoff": None}
     groups, count = candidates(sql, context)  # adım 7
     context.selected_sql = groups[0]["sqls"][0] if groups else None
@@ -108,9 +108,9 @@ def extract_sql(text):
 
 def result_of(sql, context):
     """Candidate'in gerçek sonucu; pre-check'ten geçmeyen ya da hata veren: None."""
-    if execute.check(context.db_path, sql):
+    if execute_sql.check(context.db_path, sql):
         return None
-    result = execute.run(sql, context)
+    result = execute_sql.run_sql(sql, context)
     return result if result["ok"] else None
 
 
@@ -146,7 +146,7 @@ def medium_note(groups, candidate_count):
         result = group["result"]
         lines.append(f"Group {number} ({len(group['sqls'])} of {candidate_count} candidates): {group['sqls'][0]}")
         lines.append(f"  Columns: {', '.join(result['columns'])}; {result['row_count']} rows")
-        for row in execute.trim_rows(result["rows"][:config.MEDIUM_NOTE_ROWS]):
+        for row in execute_sql.trim_rows(result["rows"][:config.MEDIUM_NOTE_ROWS]):
             lines.append("  " + " | ".join(row))
     lines.append("Decide which one answers the question: submit it, or run a new query first.")
     return "\n".join(lines)
@@ -155,13 +155,13 @@ def medium_note(groups, candidate_count):
 def final_check(sql, context):
     """Geçerse None, geçmezse agent'a dönecek not. Cevap çalışmalı, hata vermemeli; boşsa agent bu SQL'i daha önce
     execute_sql ile çalıştırıp boş geldiğini görmüş olmalı."""
-    note = execute.check(context.db_path, sql)
+    note = execute_sql.check(context.db_path, sql)
     if note:
         return f"Final check failed: {note}"
-    result = execute.run(sql, context)
+    result = execute_sql.run_sql(sql, context)
     if not result["ok"]:
         return f"Final check failed: the query gives an error: {result['error']}"
-    if result["row_count"] == 0 and execute.sql_key(sql) not in context.ran_by_agent:
+    if result["row_count"] == 0 and execute_sql.sql_key(sql) not in context.ran_by_agent:
         return ("Final check failed: the query returns no rows. Check the values and conditions in the query; "
                 "if an empty result is the right answer, run it with execute_sql first, then submit it again.")
     return None
