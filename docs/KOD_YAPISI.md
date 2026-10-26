@@ -19,14 +19,14 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 | Dosya | Akıştaki yeri | Ne yapar |
 |---|---|---|
 | `agent/loop.py` | Adım 2, 8 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → experience log. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider; ilk 4 adımda ilerleme yoksa erken handoff. `next_step`: modelden sıradaki tool call (takılınca örnekleme). Handoff: `start_teacher`, `fallback_answer` (en son hatasız ve dolu çalışan SQL). `write_experience`: her soru bitince experience log |
-| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, base'in tek SQL'i, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
+| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, base'in tek SQL'i, teacher kontrolü, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
 | `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Policy yerel `mlx_lm.server`'a, teacher OpenRouter'a gider (`LLM_URL`, `TEACHER_URL`); ikisi de OpenAI biçimi, adresler `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
 | `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
 | `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`). Değer bulunamazsa adı benzeyen sütunlar (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). |
-| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i; 2 kez geçmezse handoff; agent sonucu görmediyse önce sonucu gösterir (`context.seen`). `final_check`: pre-check, hatasız çalışıyor mu |
-| `harness/guards.py` | Her adım | `read_tool_call`: modelin cevabını bir adım olarak okur (tool call ya da ` ```sql ` bloğu); bozuk çıktının reddi. `earlier_calls`: aynı çağrının tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
+| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i; 2 kez geçmezse handoff; agent sonucu görmediyse önce sonucu gösterir (`context.seen`). `final_check`: pre-check, hatasız çalışıyor mu. `teacher_approves`: agent'ın cevabını teacher kontrol eder (`CHECK_ANSWER`); onaylamazsa handoff |
+| `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `earlier_calls`: aynı çağrının tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
 | `config.py` | | Tüm sabitler (aşağıdaki tablo) |
@@ -41,7 +41,7 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 ## Tool'lar
 
-Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call biçimiyle yazılır; agent SQL'i mesajında bir ` ```sql ` bloğu olarak yazarsa o da `execute_sql` sayılır. Her çağrı budget'tan bir düşer; reddedilen ve biçimi bozuk çağrılar da.
+Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call biçimiyle yazılır. Her çağrı budget'tan bir düşer; reddedilen ve biçimi bozuk çağrılar da.
 
 | Tool | Argument'lar | Agent'a giden | Akıştaki yeri |
 |---|---|---|---|

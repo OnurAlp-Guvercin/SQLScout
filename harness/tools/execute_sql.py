@@ -27,6 +27,7 @@ def run(sql, context):
     context.seen.add(sql_key(sql))
     if result["ok"] and result["row_count"] > 0:
         context.last_ok_sql = sql
+        context.last_ok_by = "teacher" if context.teacher else "agent"
     return text
 
 

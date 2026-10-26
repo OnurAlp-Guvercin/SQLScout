@@ -128,4 +128,4 @@ def fallback_answer(context):
     yoksa cevap yok (no_answer)."""
     if context.last_ok_sql is None:
         return context.answer(None, "no_answer")
-    return context.answer(context.last_ok_sql, "fallback")
+    return context.answer(context.last_ok_sql, "fallback", context.last_ok_by)

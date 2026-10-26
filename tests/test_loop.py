@@ -6,6 +6,7 @@ import pytest
 
 import config
 from agent import llm, loop
+from harness.tools import submit
 from tests.fakes import call_reply, execute_reply, submit_reply, text_reply, observation
 
 COUNT_SQL = "SELECT COUNT(*) FROM items"
@@ -19,13 +20,13 @@ def teacher_gives_up():
 
 def test_execute_then_submit(db, fake_model):
     replies, seen = fake_model
-    replies += [call_reply("execute_sql", {"sql": COUNT_SQL}), submit_reply(COUNT_SQL)]
+    replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
     assert answer["sql"] == COUNT_SQL and answer["label"] == "ok"
     assert answer["tool_calls"] == 2 and answer["executions"] == 1  # final check sonucu cache'ten aldı
     assert "Table items (150 rows)" in seen[0][1]["content"]  # adım 1'in bağlamı modele gitti
     assert seen[1][-1]["role"] == "tool" and observation(seen[1][-1]) == "Columns: COUNT(*)\n1 rows:\n150"
-    assert answer["cost"] == pytest.approx(0.002)
+    assert answer["cost"] == pytest.approx(0.003)  # agent'ın 2 isteği ve teacher kontrolü
 
 
 def test_submit_returns_the_chosen_query_not_the_last_one(db, fake_model):
@@ -34,14 +35,6 @@ def test_submit_returns_the_chosen_query_not_the_last_one(db, fake_model):
                 submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
     assert answer["label"] == "ok" and answer["sql"] == COUNT_SQL
-
-
-def test_sql_block_in_text_runs_like_execute_sql(db, fake_model):
-    replies, seen = fake_model
-    replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
-    loop.answer_question("How many items?", "", db)
-    assert seen[1][-1]["role"] == "user"  # SQL bloğunun sonucu kullanıcı mesajı olarak döner
-    assert observation(seen[1][-1]) == "Columns: COUNT(*)\n1 rows:\n150"
 
 
 def test_broken_output_is_rejected_and_counted(db, fake_model):
@@ -195,10 +188,30 @@ def test_stuck_agent_samples_its_next_step(db, fake_model, monkeypatch):
     fake = llm.chat
 
     def recording(messages, tools=None, seed=None, temperature=None, model=None):
-        temperatures.append(temperature)
+        if tools:  # yalnızca agent'ın adımları; teacher kontrolü kendi temperature'ıyla çalışır
+            temperatures.append(temperature)
         return fake(messages, tools=tools, seed=seed, temperature=temperature, model=model)
 
     monkeypatch.setattr(llm, "chat", recording)
     loop.answer_question("How many items?", "", db)
     retry = config.RETRY_TEMPERATURE
     assert temperatures == [None, retry, None, retry]  # reddedilen ve tekrarlanan adımdan sonra örneklendi
+
+
+def test_answer_the_teacher_does_not_approve_hands_over(db, fake_model, monkeypatch):
+    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: False)
+    replies, seen = fake_model
+    replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL),  # agent: teacher onaylamadı
+                execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: kendi submit'i kontrol edilmez
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["handoff_reason"] == "teacher cevabı onaylamadı"
+    assert observation(seen[2][-1]).startswith("A smaller agent worked on this question and handed it over to you.")
+    assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
+
+
+def test_fallback_says_who_ran_the_query(db, fake_model):
+    replies, _ = fake_model
+    replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS  # agent: ilerleme yok
+    replies += [execute_reply(COUNT_SQL)] + [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS // 2 - 1)
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL and answer["answered_by"] == "teacher"

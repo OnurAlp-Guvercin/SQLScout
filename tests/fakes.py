@@ -13,8 +13,7 @@ def call_reply(tool, args):
 
 
 def execute_reply(sql):
-    """Agent bir SQL'i çalıştırmak için ```sql bloğunda yazar."""
-    return text_reply(f"```sql\n{sql}\n```")
+    return call_reply("execute_sql", {"sql": sql})
 
 
 def submit_reply(sql):

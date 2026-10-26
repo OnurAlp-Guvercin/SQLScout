@@ -2,7 +2,6 @@
 reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/tools/execute_sql.py'de (trim_rows)."""
 
 import json
-import re
 import uuid
 
 import config
@@ -13,16 +12,11 @@ SHORTENED = "[Old result, shortened] "
 
 
 def read_tool_call(reply, tools):
-    """Modelin cevabını tek bir adım olarak okur: bir tool call, ya da tool call yoksa metindeki ```sql bloğu (execute_sql
-    adımı sayılır). Okunamazsa step["error"] dolu olur: istek reddedilir, hata agent'a gider ve budget yine düşer.
-    Birden çok tool call varsa yalnızca ilki alınır."""
+    """Modelin cevabını tek bir tool call olarak okur. Okunamazsa step["error"] dolu olur: istek reddedilir, hata agent'a
+    gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
-        sql = sql_block(reply["text"])
-        if sql:
-            step["tool"], step["args"] = "execute_sql", {"sql": sql}
-        else:
-            step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
+        step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
         return step
 
     call = reply["tool_calls"][0]
@@ -57,14 +51,6 @@ def read_tool_call(reply, tools):
 
     step["args"] = args
     return step
-
-
-def sql_block(text):
-    """Metindeki ilk ``` bloğunun içi (```sql ya da düz ```; kapanmamışsa metnin sonuna kadar); blok yoksa None."""
-    match = re.search(r"```(?:sql)?\s*(.*?)(?:```|$)", text, re.DOTALL | re.IGNORECASE)
-    if match and match.group(1).strip():
-        return match.group(1).strip()
-    return None
 
 
 def is_empty(value):

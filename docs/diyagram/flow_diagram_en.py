@@ -42,8 +42,8 @@ def lane_headers():
       'Exposed as the <i>execute_sql</i> tool',
       '<b>Rule:</b> every submitted answer has really been executed'),
      ('teacher','TEACHER LLM','Qwen3.5-9B (API) · target Qwen3.6-27B',
-      'Used only after a handoff. Continues <b>where the agent left off</b>, with half the budget (5 tool calls) and the same tools',
-      '<b>Role:</b> solves the case the agent could not; its solution becomes training data'),
+      'Checks the agent\'s answer. On a handoff, continues <b>where the agent left off</b>, with half the budget (5 tool calls) and the same tools',
+      '<b>Role:</b> approves or rejects the agent\'s answer; solves the case the agent could not, its solution becomes training data'),
     ]
     for x,(k,t,s,a,b) in zip([LX[0],LX[2],LX[3],LX[4]],heads):
         stroke,fill,bg=C[k]
@@ -100,6 +100,7 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
 <li>First write and run the SQL that answers the question</li>
 <li>Look at the real result, fix it if needed</li>
+<li>Check what it is not sure about with a small query</li>
 <li><i>submit</i> the SQL that answers the question</li></ul>
 <p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows</p></div>''')
 
@@ -124,12 +125,12 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1036,324,128,'decision','Final check','Does the submitted SQL run without error · has the agent seen its result (if not, it is shown first)',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','Runs without error · the agent has seen its result (else it is shown) · the teacher approves',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 
 node(1574,1040,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
-arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice → handoff','t')
+arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice or teacher says no','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'the teacher\'s submit goes here too','t')
 
 node(1222,1230,300,100,'io','Answer','<i>ok</i> · <i>fallback</i> if it failed<br><i>no_answer</i> if no SQL returned rows',shape='pill',tsize=20)
@@ -153,7 +154,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. It submits the SQL it chooses as the answer; the answer passes a final check, and everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. It submits the SQL it chooses as the answer; the answer passes a final check, the teacher approves it, and everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>

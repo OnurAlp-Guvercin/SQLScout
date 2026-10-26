@@ -5,7 +5,8 @@ import sqlite3
 import pytest
 
 import config
-from agent import llm
+from agent import llm, prompts
+from tests.fakes import text_reply
 
 
 @pytest.fixture(autouse=True)
@@ -36,10 +37,13 @@ def db(tmp_path):
 
 @pytest.fixture
 def fake_model(monkeypatch):
-    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder."""
+    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder. Teacher kontrolü (adım 7) sıraya
+    girmez: sahte teacher her cevabı onaylar; onaylamamayı deneyen testler submit.teacher_approves'u değiştirir."""
     replies, seen = [], []
 
     def fake_chat(messages, tools=None, seed=None, temperature=None, model=None):
+        if messages[0]["content"] == prompts.CHECK_ANSWER:
+            return text_reply("yes")
         seen.append(list(messages))
         return replies.pop(0)
 

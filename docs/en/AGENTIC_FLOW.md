@@ -37,7 +37,7 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 | Harness | The plain code around the agent: runs the tools, manages the checks and the handoff. No LLM inside |
 | Pre-check | The cheap checks the harness makes before a SQL query runs: is it read-only, does `EXPLAIN` fail, is it in the cache (step 5) |
 | Cache | The stored results of SQL queries that already ran for the same question; the same SQL is not run again |
-| Final check | The last check before the answer is returned: does the submitted SQL run without error, has the agent seen its result (step 7) |
+| Final check | The last check before the answer is returned: does the submitted SQL run without error, has the agent seen its result, does the teacher approve it (step 7) |
 | Handoff | Handing the task over to the large teacher model |
 | Evidence | The short hint text BIRD gives with each question (e.g. "returned = `status = 'returned'`") |
 | Result key | The key used to compare query results. All rows of the result are taken as a set: row order and duplicate rows do not matter, column order does (BIRD's official rule). An answer is correct if its result key equals the correct SQL's |
@@ -60,7 +60,7 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 - **Policy agent:** Decides which tool to call at each step. Currently the local `Qwen3.5-0.8B`; the target is `Qwen3.5-4B`. Used untrained for now; later it is trained inside the harness with the experience log.
 - **Harness (plain Python, no LLM):** Runs the tools, makes the checks and the final check, decides on the handoff. It also applies the guardrails.
 - **Database (SQLite, read-only):** `execute_sql`. The correct SQL never enters the agent's context; it is used only for scoring.
-- **Teacher LLM:** Used only after a handoff; continues where the agent left off. Currently `Qwen3.5-9B` on the OpenRouter API; the target is a local `Qwen3.6-27B` (4-bit).
+- **Teacher LLM:** Checks the agent's answer (step 7); after a handoff, continues where the agent left off (step 8). Currently `Qwen3.5-9B` on the OpenRouter API; the target is a local `Qwen3.6-27B` (4-bit).
 
 ## The flow step by step
 
@@ -85,8 +85,8 @@ In BIRD dev this context is at most ~12K tokens, well below the model's context 
 
 ### 2. The agent decides what to do
 
-The agent makes a single tool call each turn. The prompt gives it an order of work: first write and run the SQL query that answers the question (do not start with an exploratory query), look at the result, fix it if needed, and submit when the result answers the question.
-- If it wants to try the query that answers the question → `execute_sql` → 4
+The agent makes a single tool call each turn. The prompt gives it an order of work: first write and run the SQL query that answers the question (do not start with an exploratory query), look at the result, fix it if needed; if it is not sure about something (e.g. which values a column holds or how two tables are linked), check it with a small query; and submit when the result answers the question.
+- If it wants to try the query that answers the question, or check something it is not sure about → `execute_sql` → 4
 - If it does not know how a value is written in the database → `search_values` → 3
 - If a query it ran answers the question → `submit` with that query → 7. The queries it ran in between (checks, fixes) do not affect the answer
 
@@ -106,7 +106,7 @@ Search cannot find everything: if the question says "iade" (Turkish for "returne
 
 ### 4. The `execute_sql` request
 
-The agent sends the SQL it wants to try with `execute_sql(sql="SELECT ...")`. If it writes the SQL in a ` ```sql ` block in its message instead of a tool call, that is run the same way.
+The agent sends the SQL it wants to try with `execute_sql(sql="SELECT ...")`.
 → 5
 
 ### 5. Pre-check
@@ -133,12 +133,13 @@ The query runs read-only on the database (at most 30 seconds). The real result i
 The agent sends the SQL it chooses as the answer with `submit(sql="SELECT ...")`; the queries it ran in between do not affect the answer. The last check before the answer is returned:
 - **Is it read-only, do the tables and columns exist, does it run without error?** (steps 5–6; if the agent ran this SQL before, the result comes from the cache). An answer that gives an error does not pass. An empty result passes.
 - **Had the agent seen this SQL's result?** The agent cannot submit an answer whose result it has not looked at. If it had not seen it, the harness runs the query, shows the result to the agent and says "if it answers the question, submit it again" → 2. This does not count as a failure. Example: if the agent wrote `WHERE County = 'Alemeda'` without trying it, it sees the empty result here and fixes the value. Since the agent is shown at most 20 rows, large results are not a problem.
+- **Does the teacher approve the answer?** A SQL query that runs can still be wrong. The teacher checks the agent's answer: it sees the step 1 context, the SQL and its result, and answers "does it answer the question correctly? yes/no" with one word. If it says "no", the task goes to the teacher → 8. The teacher's own `submit` is not checked.
 
 Passed → **the answer is returned ✔** (label `ok`). Failed the final check → the reason is returned to the agent as a note → 2. If it fails a second time → 8.
 
 ### 8. Handoff
 
-The harness does the handoff: no progress in the first 4 steps, the same call repeated 3 times, the final check failing twice, or the budget running out.
+The harness does the handoff: no progress in the first 4 steps, the same call repeated 3 times, the final check failing twice, the teacher not approving the agent's answer, or the budget running out.
 - The teacher does not start from scratch; it continues where the agent left off: it sees the whole conversation and the reason for the handoff.
 - It works with a new budget half the size of the agent's (5 tool calls) and the same tools (steps 2–7).
 - The teacher's `submit` goes through the final check like the agent's (step 7). If the final check fails twice again, or the teacher does not submit within its budget, the fallback answer is returned.
@@ -172,6 +173,7 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 | Temperature 0; sampling when stuck | The most likely reply gives a more accurate single SQL; but the same input always gets the same reply, so after a rejected or repeated call the next step is sampled | — |
 | Results are compared with BIRD's official rule (result key) | "The same result" is defined in one place | BIRD |
 | Step 1 gives as much information as possible (column descriptions, column profiles) | Every search costs a tool call. If the information comes up front, the budget is left for trying | DualSQL, HarnessSQL |
+| The teacher approves the agent's answer | A SQL query that runs can still be wrong, and a small model does not notice its own mistake. The teacher's one-word check accepts right answers cheaply and sends wrong ones to the teacher | — |
 | An agent that makes no progress hands over early | An agent that gets no rows in its first steps usually cannot solve the question; the teacher starts with a short history and the cost goes down | — |
 | The teacher continues where the agent left off | What the agent found is not wasted; handoff records become training data directly | OLIVE, OVCSD |
 | The agent is trained inside the harness | A model trained outside the harness drops from 30.4 to 9.6 when used in the harness | HarnessSQL |

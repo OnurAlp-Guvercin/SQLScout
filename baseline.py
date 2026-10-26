@@ -5,6 +5,7 @@ Kullanım: python baseline.py --name <deney> [--model <model>] [--limit n] → r
 
 import argparse
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -12,7 +13,7 @@ import config
 import evaluate
 import report
 from agent import llm, prompts
-from harness import guards, prepare
+from harness import prepare
 
 
 def answer(question, model):
@@ -21,7 +22,7 @@ def answer(question, model):
     context = prepare.build_context(question["question"], question["evidence"], question["db_path"])
     messages = [{"role": "system", "content": prompts.WRITE_SQL}, {"role": "user", "content": context}]
     reply = llm.chat(messages, temperature=0, model=model)
-    sql = guards.sql_block(reply["text"]) or reply["text"].strip()  # blok yoksa cevabın tamamı
+    sql = extract_sql(reply["text"])
     correct, gold_error = evaluate.score(question["db_path"], sql, question["SQL"])
     row = {"question_id": question["question_id"], "db_id": question["db_id"], "sql": sql, "correct": correct,
            "prompt_tokens": reply["prompt_tokens"], "completion_tokens": reply["completion_tokens"],
@@ -29,6 +30,15 @@ def answer(question, model):
     if gold_error:
         row["gold_error"] = gold_error
     return row
+
+
+def extract_sql(text):
+    """Modelin cevabındaki ilk ``` bloğunun içi (```sql ya da düz ```; kapanmamışsa metnin sonuna kadar); blok yoksa
+    cevabın tamamı."""
+    match = re.search(r"```(?:sql)?\s*(.*?)(?:```|$)", text, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    return text.strip()
 
 
 def main():

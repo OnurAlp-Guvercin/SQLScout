@@ -35,7 +35,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Harness | Agent'ın etrafındaki normal kod: tool'ları çalıştırır, kontrolleri ve handoff'u yönetir. İçinde LLM yok |
 | Pre-check | SQL çalıştırılmadan önce harness'ın yaptığı ucuz kontroller: salt okuma mı, `EXPLAIN` hata veriyor mu, cache'te var mı (adım 5) |
 | Cache | Aynı soru içinde daha önce çalışmış SQL'lerin saklanan sonuçları; aynı SQL yeniden çalıştırılmaz |
-| Final check | Cevap dönmeden önceki son kontrol: submit edilen SQL hatasız çalışıyor mu, agent sonucunu görmüş mü (adım 7) |
+| Final check | Cevap dönmeden önceki son kontrol: submit edilen SQL hatasız çalışıyor mu, agent sonucunu görmüş mü, teacher onaylıyor mu (adım 7) |
 | Handoff | İşin büyük teacher modele bırakılması |
 | Evidence | BIRD'ün her soruyla birlikte verdiği kısa ipucu metni (ör. "iade edilen = `status = 'returned'`") |
 | Result key | Bir sorgu sonucunu karşılaştırmak için kullanılan anahtar. Sonucun bütün satırları küme olarak alınır: satır sırası ve tekrar eden satırlar önemsiz, sütun sırası önemli (BIRD'ün resmi kuralı). Cevap, result key'i doğru SQL'inkiyle aynıysa doğrudur |
@@ -58,7 +58,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 - **Policy agent:** Her adımda hangi tool'u çağıracağına karar verir. Şu an yerel `Qwen3.5-0.8B`; hedef `Qwen3.5-4B`. Şimdilik eğitilmemiş hâliyle kullanılır; ileride experience log'la harness'ın içinde eğitilir.
 - **Harness (düz Python, LLM yok):** Tool'ları çalıştırır, kontrolleri ve final check'i yapar, handoff'a karar verir. Guardrail'leri de o uygular.
 - **Veritabanı (SQLite, salt okunur):** `execute_sql`. Doğru SQL agent'ın bağlamına hiç girmez, yalnızca puanlamada kullanılır.
-- **Teacher LLM:** Yalnızca handoff'tan sonra devreye girer, agent'ın kaldığı yerden devam eder. Şu an OpenRouter API'sindeki `Qwen3.5-9B`; hedef yerel `Qwen3.6-27B` (4-bit).
+- **Teacher LLM:** Agent'ın cevabını kontrol eder (adım 7); handoff'tan sonra agent'ın kaldığı yerden devam eder (adım 8). Şu an OpenRouter API'sindeki `Qwen3.5-9B`; hedef yerel `Qwen3.6-27B` (4-bit).
 
 ## Akış adım adım
 
@@ -83,8 +83,8 @@ BIRD dev'de bu bağlam en fazla ~12K token; modelin bağlam sınırının çok a
 
 ### 2. Agent ne yapacağına karar verir
 
-Agent her turda tek bir tool call yapar. Prompt ona bir çalışma sırası verir: önce soruyu cevaplayan SQL'i yaz ve çalıştır (keşif sorgusuyla başlama), sonuca bak, gerekirse düzelt, sonuç soruyu cevaplıyorsa `submit` et.
-- Soruyu cevaplayan SQL'i denemek istiyorsa → `execute_sql` → 4
+Agent her turda tek bir tool call yapar. Prompt ona bir çalışma sırası verir: önce soruyu cevaplayan SQL'i yaz ve çalıştır (keşif sorgusuyla başlama), sonuca bak, gerekirse düzelt; emin olmadığın bir şey varsa (ör. bir sütunda hangi değerler var, iki tablo nasıl bağlanıyor) bunu küçük bir sorguyla kontrol et; sonuç soruyu cevaplıyorsa `submit` et.
+- Soruyu cevaplayan SQL'i denemek ya da merak ettiği bir şeyi kontrol etmek istiyorsa → `execute_sql` → 4
 - Bir değerin veritabanında nasıl yazıldığını bilmiyorsa → `search_values` → 3
 - Çalıştırdığı bir SQL soruyu cevaplıyorsa → o SQL'le `submit` → 7. Arada attığı sorgular (kontrol, düzeltme) cevabı etkilemez
 
@@ -104,7 +104,7 @@ Arama her şeyi bulamaz: soruda "iade", veritabanında `'returned'` yazıyorsa e
 
 ### 4. `execute_sql` isteği
 
-Agent denemek istediği SQL'i `execute_sql(sql="SELECT ...")` ile gönderir. SQL'i tool call yerine mesajında bir ` ```sql ` bloğu olarak yazarsa o da aynı şekilde çalıştırılır.
+Agent denemek istediği SQL'i `execute_sql(sql="SELECT ...")` ile gönderir.
 → 5
 
 ### 5. Pre-check
@@ -131,12 +131,13 @@ Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye). Agent'
 Agent cevap olarak seçtiği SQL'i `submit(sql="SELECT ...")` ile gönderir; arada attığı sorgular cevabı etkilemez. Cevap dönmeden önce son kontrol:
 - **Salt okuma mı, tablolar ve sütunlar var mı, hatasız çalışıyor mu?** (adım 5–6; agent bu SQL'i daha önce çalıştırdıysa sonuç cache'ten gelir). Hata veren cevap geçmez. Boş sonuç geçer.
 - **Agent bu SQL'in sonucunu görmüş müydü?** Agent sonucuna bakmadığı bir cevabı gönderemez. Görmediyse harness sorguyu çalıştırır, sonucunu agent'a gösterir ve "soruyu cevaplıyorsa yeniden submit et" der → 2. Bu bir hata sayılmaz. Örnek: agent hiç denemeden `WHERE County = 'Alemeda'` yazdıysa boş sonucu burada görür ve değeri düzeltir. Agent'a en fazla 20 satır gösterildiği için büyük sonuçlar sorun olmaz.
+- **Teacher cevabı onaylıyor mu?** Çalışan bir SQL yanlış da olabilir. Agent'ın cevabını teacher kontrol eder: adım 1'in bağlamını, SQL'i ve sonucunu görüp "bu soruyu doğru cevaplıyor mu? evet/hayır" sorusuna tek kelimeyle cevap verir. "Hayır" derse iş teacher'a geçer → 8. Teacher'ın kendi `submit`'i kontrol edilmez.
 
 Geçti → **cevap döner ✔** (label `ok`). Final check'ten geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
 
 ### 8. Handoff
 
-Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi ya da budget bitti.
+Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi, teacher agent'ın cevabını onaylamadı ya da budget bitti.
 - Teacher sıfırdan başlamaz, agent'ın kaldığı yerden devam eder: bütün konuşmayı ve handoff'un nedenini görür.
 - Agent'ınkinin yarısı kadar yeni bir budget'la (5 tool call) ve aynı tool'larla çalışır (adım 2–7).
 - Teacher'ın `submit`'i de agent'ınki gibi final check'ten geçer (adım 7). Final check yine 2 kez geçmezse ya da teacher budget'ı içinde `submit` etmezse fallback answer döner.
@@ -170,6 +171,7 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 | Temperature 0; takılınca örnekleme | En olası cevap tek SQL'de daha doğru; ama aynı girdiye hep aynı cevap verildiği için reddedilen ya da tekrarlanan çağrıdan sonra örneklenir | — |
 | Sonuçlar BIRD'ün resmi kuralıyla karşılaştırılır (result key) | "Aynı sonuç" tek bir yerde tanımlıdır | BIRD |
 | Adım 1 olabildiğince çok bilgi verir (sütun açıklamaları, column profile'ları) | Her search bir tool call harcar. Bilgi baştan gelirse budget denemeye kalır | DualSQL, HarnessSQL |
+| Agent'ın cevabını teacher onaylar | Çalışan bir SQL yanlış da olabilir; küçük model kendi yanlışını fark etmez. Teacher'ın tek kelimelik kontrolü, doğru cevapları ucuza kabul eder, yanlışları teacher'a gönderir | — |
 | İlerlemeyen agent erken handoff yapar | İlk adımlarında dolu sonuç alamayan agent genelde soruyu çözemiyor; teacher kısa bir geçmişle başlar, maliyet düşer | — |
 | Teacher agent'ın kaldığı yerden devam eder | Agent'ın bulduğu bilgi boşa gitmez; handoff kayıtları doğrudan eğitim verisi olur | OLIVE, OVCSD |
 | Agent harness içinde eğitilir | Harness dışında eğitilen model, harness'ta kullanıldığında 30.4'ten 9.6'ya düşüyor | HarnessSQL |

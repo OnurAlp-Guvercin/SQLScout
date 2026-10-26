@@ -21,14 +21,6 @@ def test_valid_call_is_read():
     assert "needs a non-empty value for: sql" in guards.read_tool_call(reply_with("submit", "{}"), TOOLS)["error"]
 
 
-def test_sql_block_in_text_is_an_execute_step():
-    step = guards.read_tool_call({"text": "Let me count.\n```sql\nSELECT 1\n```", "tool_calls": []}, TOOLS)
-    assert step["error"] is None and step["tool"] == "execute_sql" and step["args"] == {"sql": "SELECT 1"}
-    assert step["id"] is None
-    assert guards.sql_block("```\nSELECT 2\n```") == "SELECT 2"
-    assert guards.sql_block("```sql\nSELECT 3") == "SELECT 3"  # kapanmamış blok (cevap kesildi)
-
-
 def test_plain_text_is_rejected():
     step = guards.read_tool_call({"text": "The answer is 150.", "tool_calls": []}, TOOLS)
     assert step["error"].startswith("Rejected: your reply was not a tool call")

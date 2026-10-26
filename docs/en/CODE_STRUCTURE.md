@@ -21,14 +21,14 @@ This document describes how the code is organized, how it is written and in what
 | File | Place in the flow | What it does |
 |---|---|---|
 | `agent/loop.py` | Steps 2, 8 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → experience log. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`; an early handoff if there is no progress in the first 4 steps. `next_step`: the next tool call from the model (sampled when stuck). Handoff: `start_teacher`, `fallback_answer` (the last SQL that ran without error and returned rows). `write_experience`: the experience log, when each question ends |
-| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, the base's single SQL, the teacher's takeover note) and the tool definitions (`TOOLS`) |
+| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, the base's single SQL, the teacher's check, the teacher's takeover note) and the tool definitions (`TOOLS`) |
 | `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). The policy goes to a local `mlx_lm.server`, the teacher to OpenRouter (`LLM_URL`, `TEACHER_URL`); both use the OpenAI format, the addresses are in `config.py`. To try it: `python -m agent.llm "question"` |
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
 | `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
 | `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`). If no value is found, the columns with a similar name (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). |
-| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`; handoff if it fails twice; if the agent had not seen the result, it shows the result first (`context.seen`). `final_check`: pre-check, does it run without error |
-| `harness/guards.py` | Every step | `read_tool_call`: reads the model's reply as one step (a tool call or a ` ```sql ` block); rejecting broken output. `earlier_calls`: repeated calls (handoff on the third repeat). `compress`: compressing the context |
+| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`; handoff if it fails twice; if the agent had not seen the result, it shows the result first (`context.seen`). `final_check`: pre-check, does it run without error. `teacher_approves`: the teacher checks the agent's answer (`CHECK_ANSWER`); handoff if it does not approve |
+| `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `earlier_calls`: repeated calls (handoff on the third repeat). `compress`: compressing the context |
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
 | `config.py` | | All constants (table below) |
@@ -43,7 +43,7 @@ This document describes how the code is organized, how it is written and in what
 
 ## Tools
 
-The agent makes a single tool call each turn. Tool calls are written in Qwen's own tool-call format; if the agent writes SQL in a ` ```sql ` block in its message, that counts as `execute_sql` too. Every call takes one off the budget, including rejected and malformed calls.
+The agent makes a single tool call each turn. Tool calls are written in Qwen's own tool-call format. Every call takes one off the budget, including rejected and malformed calls.
 
 | Tool | Arguments | Returned to the agent | Place in the flow |
 |---|---|---|---|

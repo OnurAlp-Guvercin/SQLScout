@@ -1,8 +1,9 @@
-"""Adım 7: submit tool'u. Agent'ın cevap olarak seçtiği SQL final check'ten geçerse ve agent onun sonucunu daha önce
-görmüşse cevap olur. Final check'ten geçmezse nedeni agent'a not olarak döner, ikinci kez geçmezse iş teacher'a
-devredilir (adım 8)."""
+"""Adım 7: submit tool'u. Agent'ın cevap olarak seçtiği SQL final check'ten geçerse, agent onun sonucunu daha önce
+görmüşse ve teacher cevabı onaylarsa cevap olur. Final check'ten geçmezse nedeni agent'a not olarak döner, ikinci kez
+geçmezse iş teacher'a devredilir; teacher onaylamazsa da devredilir (adım 8)."""
 
 import config
+from agent import llm, prompts
 from harness.tools import execute_sql
 
 
@@ -11,6 +12,8 @@ def run(sql, context):
     1. final_check: SQL hatasız çalışmıyorsa nedeni agent'a döner; ikinci kez geçmezse handoff.
     2. Agent bu SQL'in sonucunu daha önce görmediyse cevap henüz kabul edilmez: harness onu çalıştırıp
        sonucunu agent'a gösterir; agent soruyu cevapladığına karar verirse yeniden submit eder. Bu bir hata sayılmaz.
+    3. teacher_approves: agent'ın cevabını teacher kontrol eder; onaylamazsa handoff. Teacher'ın kendi submit'i
+       kontrol edilmez.
     Return: {"done": cevap kabul edildi mi, "note": agent'a gidecek not ya da None, "handoff": handoff nedeni ya da None}."""
     note = final_check(sql, context)
     if note:
@@ -23,7 +26,20 @@ def run(sql, context):
         note = (f"You had not seen the result of this query yet. Its result:\n{result}\n"
                 "If it answers the question, call submit with it again.")
         return {"done": False, "note": note, "handoff": None}
+    if not context.teacher and not teacher_approves(sql, context):
+        return {"done": False, "note": None, "handoff": "teacher cevabı onaylamadı"}
     return {"done": True, "note": None, "handoff": None}
+
+
+def teacher_approves(sql, context):
+    """Teacher'a adım 1'in bağlamını, SQL'i ve sonucunu verip "doğru mu?" diye sorar (temperature 0). Cevabı "yes" ile
+    başlamıyorsa onaylanmamış sayılır."""
+    result = execute_sql.format_result(execute_sql.run_sql(sql, context))  # final check çalıştırdı: cache'ten gelir
+    question = f"{context.messages[1]['content']}\n\nSQL query:\n```sql\n{sql}\n```\nIts result:\n{result}"
+    messages = [{"role": "system", "content": prompts.CHECK_ANSWER}, {"role": "user", "content": question}]
+    reply = llm.chat(messages, temperature=0, model=config.TEACHER_MODEL)
+    context.count_usage(reply)
+    return reply["text"].strip().lower().startswith("yes")
 
 
 def final_check(sql, context):

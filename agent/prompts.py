@@ -27,13 +27,23 @@ one tool in each turn.
 Work in this order:
 1. Write the one SQLite query that answers the question and run it with `execute_sql`. The schema above already \
 lists every table and column: do not query sqlite_master and do not run exploratory queries first.
-2. Look at its real result. If it shows an error, no rows or something unexpected, run a fixed query. The value \
-samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not among them or in the evidence, \
-call `search_values` to find its exact spelling and its column.
+2. Look at its real result. If it shows an error, no rows or something unexpected, run a fixed query. If you are \
+not sure about something (e.g. which values a column holds or how two tables are linked), check it with a small \
+query. The value samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not among them \
+or in the evidence, call `search_values` to find its exact spelling and its column.
 3. When a query you ran answers the question, call `submit` with exactly that query. Do not change a query whose \
 result already answers the question.
 
 {SQL_RULES}"""
+
+# Teacher kontrolü (adım 7): agent'ın cevabını kabul etmeden önce teacher doğru mu diye bakar.
+CHECK_ANSWER = f"""You are an expert SQLite analyst. You are given a database schema with column descriptions and \
+value samples, sometimes evidence, a question, a SQL query written for it and its result. Decide whether the query \
+answers the question correctly: the right tables, joins, conditions and values, and only what the question asks for.
+
+{SQL_RULES}
+
+Reply with exactly one word: yes or no."""
 
 # Handoff (adım 8): teacher, agent'ın konuşmasını bu notla devralır.
 TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over to you. Reason: {reason}.

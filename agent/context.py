@@ -33,6 +33,7 @@ class Context:
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
     last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; fallback answer'da kullanılır
+    last_ok_by: str = None  # last_ok_sql'i kim çalıştırdı: agent ya da teacher
     handoff_reason: str = None
 
     # Ölçüm sayaçları (new_stats)

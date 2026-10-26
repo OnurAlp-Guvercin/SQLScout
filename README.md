@@ -19,11 +19,11 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 1 | Initial context | Harness | Schema, column descriptions, column profiles, evidence |
 | 2 | Agent decides | Agent | One tool call per turn: try SQL, search a value or submit; it writes the answer first instead of exploring. At most 10 tool calls |
 | 3 | Search for values | Harness | `search_values`: how a value is written and in which column |
-| 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try (or writes it in a ` ```sql ` block) |
+| 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try, or a small query to check something it is not sure about |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
 | 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty, a note suggests checking the value's spelling with `search_values` |
-| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, and has the agent seen its result (if not, the result is shown first)? If it fails, a note goes back to the agent; failing twice → 8 |
-| 8 | Handoff | Teacher | No progress in the first 4 steps, the same call 3 times, the final check failing twice, or out of budget: the teacher continues from where the agent stopped, with 5 tool calls |
+| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
+| 8 | Handoff | Teacher | No progress in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher continues from where the agent stopped, with 5 tool calls |
 
 Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL) → 5 → 6 (1 row) → 2 → 7 (passed) → ✔
 
@@ -49,7 +49,7 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 | `harness/prepare.py` | 1 | Initial context: schema, column descriptions and profiles, evidence |
 | `harness/tools/search_values.py` | 3 | Searching values |
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
-| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits |
+| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits; the teacher checks the agent's answer |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |
 | `baseline.py` | | The base for comparison: a tool-free single SQL |
