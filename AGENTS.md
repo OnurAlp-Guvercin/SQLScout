@@ -2,7 +2,7 @@
 
 Agentic Text-to-SQL sistemi. ICML'e makale olarak gidecek ve ders projesi olarak sunulacak. Sunumu yapacak kullanıcı her parçayı zahmetsizce anlayabilmeli.
 
-Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, düzeltir. Cevap, agent'ın en son çalıştırdığı SQL'dir (`submit` argümansız) ve bir final check'ten geçer. Agent ilerleyemez ya da takılırsa iş büyük bir teacher modele devredilir (handoff).
+Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, düzeltir. Agent cevap olarak seçtiği SQL'i `submit` eder; cevap bir final check'ten geçer. Agent ilerleyemez ya da takılırsa iş büyük bir teacher modele devredilir (handoff).
 
 **Durum:** Akış 8 adımdır (AGENTIC_FLOW.md): 1 başlangıç bağlamı, 2 agent'ın kararı, 3 `search_values`, 4–6 `execute_sql` (pre-check ve gerçek çalıştırma; agent SQL'i ` ```sql ` bloğunda yazarsa o da çalıştırılır), 7 `submit` → final check, 8 handoff. Sistem bilerek sade tutuluyor (kullanıcı kararı): candidate seçimi, confidence gate, `ask_user`, Mini-Interact, world model, forecast ve user simulator yok; gerekirse sonra eklenir. Agent (policy) ileride kesin eğitilecek (SFT → on-policy distillation → RL; kullanıcı kararı); bunun için her soru, nereden çalıştırılırsa çalıştırılsın (kullanım dahil), bütün konuşmasıyla `experience/log.jsonl`'a yazılır (`agent/loop.py` `write_experience`). Testler API'siz geçiyor. Policy yerel Qwen3.5-0.8B, teacher API'deki Qwen3.5-9B (kullanıcı kararı; API kotası ve bütçe sınırlı). Karşılaştırmanın base'i `baseline.py`'dir (tool'suz tek SQL). Dosyalar ve görevleri KOD_YAPISI.md "Dosya haritası"nda.
 

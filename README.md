@@ -2,7 +2,7 @@
 
 **Agentic Text-to-SQL with an agent loop, a final check and handoff.**
 
-A small policy agent turns a natural-language question into SQL by calling tools: it searches for values, runs SQL and looks at the real result. The answer is the last SQL query the agent ran; it passes a **final check**, and every answer that is returned has actually been executed. If the agent makes no progress or gets stuck, the task is handed over to a larger teacher model (**handoff**).
+A small policy agent turns a natural-language question into SQL by calling tools: it searches for values, runs SQL and looks at the real result. The agent submits the SQL query it chooses as the answer; it passes a **final check**, and every answer that is returned has actually been executed. If the agent makes no progress or gets stuck, the task is handed over to a larger teacher model (**handoff**).
 
 The project is being developed as an ICML paper and a course project. The main benchmark is BIRD (SQLite, with evidence).
 
@@ -22,7 +22,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try (or writes it in a ` ```sql ` block) |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
 | 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty, a note suggests checking the value's spelling with `search_values` |
-| 7 | `submit` → final check | Harness | `submit` takes no arguments: the answer is the last SQL the agent ran. Has a query been run, does it run without error? If not, a note goes back to the agent; failing twice → 8 |
+| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, and has the agent seen its result (if not, the result is shown first)? If it fails, a note goes back to the agent; failing twice → 8 |
 | 8 | Handoff | Teacher | No progress in the first 4 steps, the same call 3 times, the final check failing twice, or out of budget: the teacher continues from where the agent stopped, with 5 tool calls |
 
 Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL) → 5 → 6 (1 row) → 2 → 7 (passed) → ✔
@@ -32,7 +32,6 @@ Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL
 | Decision | Why |
 |---|---|
 | The final answer is always really executed | Whether an unexecuted SQL is correct cannot be known |
-| The answer is the last SQL the agent ran | The agent cannot break the query whose result it saw while rewriting it |
 | Error notes say how to fix the error | A small model fixes a wrong column only when the note lists the real columns of the tables in its query |
 | An agent that makes no progress hands over early | The teacher starts with a short history; no steps or money are wasted |
 | No LLM and no agent framework in the harness | Every decision is plain Python: readable and reproducible |
@@ -50,7 +49,7 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 | `harness/prepare.py` | 1 | Initial context: schema, column descriptions and profiles, evidence |
 | `harness/tools/search_values.py` | 3 | Searching values |
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
-| `harness/tools/submit.py` | 7 | Final check |
+| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |
 | `baseline.py` | | The base for comparison: a tool-free single SQL |

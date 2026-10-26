@@ -18,7 +18,7 @@ def test_valid_call_is_read():
     step = guards.read_tool_call(reply_with("search_values", '{"query": "Boston"}'), TOOLS)
     assert step["error"] is None
     assert step["tool"] == "search_values" and step["args"] == {"query": "Boston"} and step["id"] == "c1"
-    assert guards.read_tool_call(reply_with("submit", "{}"), TOOLS)["error"] is None  # submit argümansız
+    assert "needs a non-empty value for: sql" in guards.read_tool_call(reply_with("submit", "{}"), TOOLS)["error"]
 
 
 def test_sql_block_in_text_is_an_execute_step():
@@ -62,7 +62,7 @@ def test_missing_argument_is_rejected():
 def test_only_first_of_many_calls_is_taken():
     reply = {"text": "", "tool_calls": [
         {"id": "a", "function": {"name": "search_values", "arguments": '{"query": "Boston"}'}},
-        {"id": "b", "function": {"name": "submit", "arguments": "{}"}},
+        {"id": "b", "function": {"name": "submit", "arguments": '{"sql": "SELECT 1"}'}},
     ]}
     assert guards.read_tool_call(reply, TOOLS)["args"] == {"query": "Boston"}
 
@@ -81,7 +81,7 @@ def test_repeat_rules():
     assert guards.earlier_calls(other_sql, past(old)) == []
     search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "..."}
     assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
-    submit = {"tool": "submit", "args": {}, "result": "Final check failed: ..."}
+    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Final check failed: ..."}
     assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz (final check sınırlar)
     rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argument'ı yok
     assert guards.earlier_calls(other_sql, past(rejected)) == []

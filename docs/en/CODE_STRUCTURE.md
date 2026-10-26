@@ -27,7 +27,7 @@ This document describes how the code is organized, how it is written and in what
 | `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
 | `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`). If no value is found, the columns with a similar name (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). |
-| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`: the last SQL that was run is the answer; handoff if it fails twice. `final_check`: has a SQL query been run, pre-check, does it run without error |
+| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`; handoff if it fails twice; if the agent had not seen the result, it shows the result first (`context.seen`). `final_check`: pre-check, does it run without error |
 | `harness/guards.py` | Every step | `read_tool_call`: reads the model's reply as one step (a tool call or a ` ```sql ` block); rejecting broken output. `earlier_calls`: repeated calls (handoff on the third repeat). `compress`: compressing the context |
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
@@ -49,7 +49,7 @@ The agent makes a single tool call each turn. Tool calls are written in Qwen's o
 |---|---|---|---|
 | `search_values` | `query` | The 5 most relevant values that contain the word or are spelled similarly: `table.column = 'value'` | Step 3 |
 | `execute_sql` | `sql` | The real result (at most 20 rows; a `search_values` reminder if empty) or a pre-check note | Steps 4–6 |
-| `submit` | (none) | The last SQL that was run is returned as the answer, or a final check note | Step 7 |
+| `submit` | `sql` | The answer is returned; or a final check note, or the result if the agent had not seen it | Step 7 |
 
 - **`search_values`:** Searches an SQLite FTS5 index built from the distinct values of text columns. The index uses trigrams (a part of a word also matches); the matches are ranked by spelling similarity with `difflib`, so a search for "Los Angles" finds "Los Angeles". The index is built once per database and stored in `data/prepared/<db_id>/values.sqlite`.
 
@@ -91,9 +91,9 @@ def run_steps(context):
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(sql, context)                  # steps 4–6
         else:
-            outcome = submit.run(last_run_sql, context)             # step 7: the answer is the last SQL that was run
+            outcome = submit.run(sql, context)                      # step 7
             if outcome["done"]:
-                return context.answer(last_run_sql, "ok")
+                return context.answer(sql, "ok")
             if outcome["handoff"]:
                 return None                                         # final check failed twice → step 8
             result = outcome["note"]                                # final check note → step 2

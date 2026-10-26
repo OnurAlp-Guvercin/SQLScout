@@ -4,7 +4,7 @@ Turkish original: [../AGENTIC_FLOW.md](../AGENTIC_FLOW.md)
 
 **Agentic Text-to-SQL with an agent loop, a final check and handoff.**
 
-A small policy agent solves the question with tools: it searches for values, tries SQL, looks at the result and fixes it. The answer is the last SQL query the agent ran, and it passes a final check; every answer that is returned has actually been executed. If the agent makes no progress or gets stuck, the task is handed over to a large teacher LLM (handoff). The literature behind the design is in [RESEARCH.md](RESEARCH.md); the structure of the code is in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
+A small policy agent solves the question with tools: it searches for values, tries SQL, looks at the result and fixes it. The agent submits the SQL query it chooses as the answer; the answer passes a final check, and every answer that is returned has actually been executed. If the agent makes no progress or gets stuck, the task is handed over to a large teacher LLM (handoff). The literature behind the design is in [RESEARCH.md](RESEARCH.md); the structure of the code is in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 
 ## Flow
 
@@ -37,7 +37,7 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 | Harness | The plain code around the agent: runs the tools, manages the checks and the handoff. No LLM inside |
 | Pre-check | The cheap checks the harness makes before a SQL query runs: is it read-only, does `EXPLAIN` fail, is it in the cache (step 5) |
 | Cache | The stored results of SQL queries that already ran for the same question; the same SQL is not run again |
-| Final check | The last check before the answer is returned: has a SQL query been run, does it run without error (step 7) |
+| Final check | The last check before the answer is returned: does the submitted SQL run without error, has the agent seen its result (step 7) |
 | Handoff | Handing the task over to the large teacher model |
 | Evidence | The short hint text BIRD gives with each question (e.g. "returned = `status = 'returned'`") |
 | Result key | The key used to compare query results. All rows of the result are taken as a set: row order and duplicate rows do not matter, column order does (BIRD's official rule). An answer is correct if its result key equals the correct SQL's |
@@ -88,9 +88,9 @@ In BIRD dev this context is at most ~12K tokens, well below the model's context 
 The agent makes a single tool call each turn. The prompt gives it an order of work: first write and run the SQL query that answers the question (do not start with an exploratory query), look at the result, fix it if needed, and submit when the result answers the question.
 - If it wants to try the query that answers the question → `execute_sql` → 4
 - If it does not know how a value is written in the database → `search_values` → 3
-- If the result of the last query it ran answers the question → `submit` → 7
+- If a query it ran answers the question → `submit` with that query → 7. The queries it ran in between (checks, fixes) do not affect the answer
 
-After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if the last query you ran answers the question, submit now". If the agent has not run any SQL that returned rows in its first 4 tool calls, it is considered not to be making progress and the harness hands over to the teacher right away → 8; the teacher starts with a short history, and no steps or money are wasted. If the budget runs out, the harness also forces a handoff → 8.
+After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if a query you ran answers the question, submit it now". If the agent has not run any SQL that returned rows in its first 4 tool calls, it is considered not to be making progress and the harness hands over to the teacher right away → 8; the teacher starts with a short history, and no steps or money are wasted. If the budget runs out, the harness also forces a handoff → 8.
 
 **Guardrails.** Small models often make certain typical mistakes; so that these do not break the system, the harness applies three simple rules at every step (DualSQL).
 1. **No repeats:** If the same call (same tool, same arguments) comes a second time, it is not run; a "you already tried this" note and the earlier result are returned, and the budget still goes down. If the same call is repeated a third time, the agent is considered stuck and the harness hands over → 8. Only its own repeats count: the teacher repeating a call the agent made does not make the teacher stuck. `submit` does not count as a repeat; the final check limits it (step 7).
@@ -130,11 +130,11 @@ The query runs read-only on the database (at most 30 seconds). The real result i
 
 ### 7. `submit` → final check
 
-`submit` takes no arguments: the answer is **the last SQL query the agent ran**. The agent does not rewrite the answer, so it cannot break the query whose result it saw while rewriting it. The last check before the answer is returned:
-- **Has a SQL query been run?** If the agent submits without having run any query, it does not pass.
-- **Is it read-only, do the tables and columns exist, does it run without error?** (steps 5–6; the result comes from the cache). An answer that gives an error does not pass. An empty result passes, since the agent ran it and saw it.
+The agent sends the SQL it chooses as the answer with `submit(sql="SELECT ...")`; the queries it ran in between do not affect the answer. The last check before the answer is returned:
+- **Is it read-only, do the tables and columns exist, does it run without error?** (steps 5–6; if the agent ran this SQL before, the result comes from the cache). An answer that gives an error does not pass. An empty result passes.
+- **Had the agent seen this SQL's result?** The agent cannot submit an answer whose result it has not looked at. If it had not seen it, the harness runs the query, shows the result to the agent and says "if it answers the question, submit it again" → 2. This does not count as a failure. Example: if the agent wrote `WHERE County = 'Alemeda'` without trying it, it sees the empty result here and fixes the value. Since the agent is shown at most 20 rows, large results are not a problem.
 
-Passed → **the answer is returned ✔** (label `ok`). Not passed → the reason is returned to the agent as a note → 2. If it fails a second time → 8.
+Passed → **the answer is returned ✔** (label `ok`). Failed the final check → the reason is returned to the agent as a note → 2. If it fails a second time → 8.
 
 ### 8. Handoff
 
@@ -167,7 +167,6 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 | Decision | Why | Basis |
 |---|---|---|
 | The final answer is always really executed | Whether an unexecuted SQL is correct cannot be known | — |
-| The answer is the last SQL query the agent ran (`submit` takes no arguments) | The agent cannot break the query whose result it saw while rewriting it | — |
 | The agent writes the answer first, it does not start with exploratory queries | A small model that starts with exploratory queries often stays exploring and never writes the answer | — |
 | The error note says what is needed to fix it | Small models fix an error only when what is wrong is written out clearly (e.g. the real columns of the tables in the query) | DualSQL |
 | Temperature 0; sampling when stuck | The most likely reply gives a more accurate single SQL; but the same input always gets the same reply, so after a rejected or repeated call the next step is sampled | — |

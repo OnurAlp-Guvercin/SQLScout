@@ -1,6 +1,6 @@
 """Agent loop: akışın kendisi. Agent her turda tek bir tool çağırır; harness onu çalıştırır ve sonucu agent'a geri
 verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/tools/): search_values (adım 3),
-execute_sql (adım 4–6), submit (adım 7; agent'ın en son çalıştırdığı SQL cevaptır).
+execute_sql (adım 4–6), submit (adım 7; agent cevap olarak seçtiği SQL'i yazar).
 Agent takılırsa (ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi, budget bitti)
 harness işi teacher'a verir (adım 8): teacher aynı döngüyle, yarım budget'la devam eder.
 Soru bitince experience log yazılır."""
@@ -77,11 +77,11 @@ def run_steps(context):
             result = search_values.run(step["args"]["query"], context)  # adım 3
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
-        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer: en son çalıştırdığı SQL cevaptır
-            outcome = submit.run(context.last_run_sql, context)  # adım 7
+        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer
+            outcome = submit.run(step["args"]["sql"], context)  # adım 7
             if outcome["done"]:
                 context.add(step, "Accepted.")
-                return context.answer(context.last_run_sql, "ok", by)
+                return context.answer(step["args"]["sql"], "ok", by)
             if outcome["handoff"]:
                 if not context.teacher:
                     context.handoff_reason = outcome["handoff"]
@@ -89,8 +89,6 @@ def run_steps(context):
                 return None
             result = outcome["note"]  # final check notu → adım 2
 
-        if step["tool"] == "execute_sql" and not step["error"]:
-            context.last_run_sql = step["args"]["sql"]  # tekrar olsa da: submit bunu gönderir
         context.add(step, result)
         context.stuck = bool(step["error"] or earlier)  # reddedildi ya da tekrarladı: sıradaki adım örneklenir
         if not context.teacher and context.calls == config.PROGRESS_CALLS and context.last_ok_sql is None:
@@ -99,7 +97,7 @@ def run_steps(context):
         if context.calls_left > 0:  # kalan budget yalnızca modele giden mesaja eklenir, adım kaydına değil
             note = f"\n[{context.calls_left} tool call(s) left."
             if context.calls_left <= config.BUDGET_WARNING:
-                note += " If the last query you ran answers the question, call submit now."
+                note += " If a query you ran answers the question, call submit with it now."
             context.messages[-1]["content"] += note + "]"
 
     if not context.teacher:

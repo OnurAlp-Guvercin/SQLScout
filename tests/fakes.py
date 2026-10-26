@@ -17,8 +17,8 @@ def execute_reply(sql):
     return text_reply(f"```sql\n{sql}\n```")
 
 
-def submit_reply():
-    return call_reply("submit", {})
+def submit_reply(sql):
+    return call_reply("submit", {"sql": sql})
 
 
 def observation(message):

@@ -38,7 +38,7 @@ def test_limit_takes_a_fixed_sample_in_dataset_order():
 
 def test_evaluation_adds_split_and_correctness_to_the_experience_log(db, fake_model):
     replies, _ = fake_model
-    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply()]
+    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
     question = {"question_id": 7, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",
                 "SQL": "SELECT COUNT(id) FROM items"}
     row = evaluate.run_one(question, seed=0)

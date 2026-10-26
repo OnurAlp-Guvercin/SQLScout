@@ -97,7 +97,7 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <ul><li>Mevcut durumu düşün</li><li>TEK bir tool call seç</li>
 <li>Önce soruyu cevaplayan SQL\'i yaz ve çalıştır</li>
 <li>Gerçek sonuca bak, gerekirse düzelt</li>
-<li>Sonuç soruyu cevaplıyorsa <i>submit</i>: cevap en son çalıştırılan SQL</li></ul>
+<li>Soruyu cevaplayan SQL\'i <i>submit</i> et</li></ul>
 <p>Budget: en fazla 10 tool call; ilk 4'ünde dolu sonuç yoksa handoff</p></div>''')
 
 # handoff from agent (top)
@@ -121,7 +121,7 @@ node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boşsa: değerin 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
-node(822,1036,324,128,'decision','Final check','Cevap: en son çalıştırılan SQL · salt okuma + var olan tablo/sütun · hatasız çalışıyor mu?',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','Submit edilen SQL hatasız çalışıyor mu · agent sonucunu gördü mü (görmediyse önce gösterilir)',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'geçmedi → not · çalışmaya devam','p')
 
@@ -150,7 +150,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, düzeltir. Cevap, en son çalıştırdığı SQL\'dir ve final check\'ten geçer; gönderilen her şey gerçekten çalıştırılmış olur. İlerleyemez ya da takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, düzeltir. Cevap olarak seçtiği SQL\'i submit eder; cevap final check\'ten geçer ve gönderilen her şey gerçekten çalıştırılmış olur. İlerleyemez ya da takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>

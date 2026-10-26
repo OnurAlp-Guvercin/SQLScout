@@ -2,7 +2,7 @@
 
 **Agent loop, final check ve handoff ile agentic Text-to-SQL.**
 
-Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, düzeltir. Cevap, agent'ın en son çalıştırdığı SQL'dir ve bir final check'ten geçer; dönen her cevap gerçekten çalıştırılmıştır. Agent ilerleyemez ya da takılırsa iş büyük bir teacher LLM'e devredilir (handoff). Tasarımın dayandığı literatür [ARASTIRMA.md](ARASTIRMA.md), kodun yapısı [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
+Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, düzeltir. Agent cevap olarak seçtiği SQL'i `submit` eder; cevap bir final check'ten geçer ve dönen her cevap gerçekten çalıştırılmıştır. Agent ilerleyemez ya da takılırsa iş büyük bir teacher LLM'e devredilir (handoff). Tasarımın dayandığı literatür [ARASTIRMA.md](ARASTIRMA.md), kodun yapısı [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
 
 ## Akış
 
@@ -35,7 +35,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Harness | Agent'ın etrafındaki normal kod: tool'ları çalıştırır, kontrolleri ve handoff'u yönetir. İçinde LLM yok |
 | Pre-check | SQL çalıştırılmadan önce harness'ın yaptığı ucuz kontroller: salt okuma mı, `EXPLAIN` hata veriyor mu, cache'te var mı (adım 5) |
 | Cache | Aynı soru içinde daha önce çalışmış SQL'lerin saklanan sonuçları; aynı SQL yeniden çalıştırılmaz |
-| Final check | Cevap dönmeden önceki son kontrol: çalıştırılmış bir SQL var mı, hatasız çalışıyor mu (adım 7) |
+| Final check | Cevap dönmeden önceki son kontrol: submit edilen SQL hatasız çalışıyor mu, agent sonucunu görmüş mü (adım 7) |
 | Handoff | İşin büyük teacher modele bırakılması |
 | Evidence | BIRD'ün her soruyla birlikte verdiği kısa ipucu metni (ör. "iade edilen = `status = 'returned'`") |
 | Result key | Bir sorgu sonucunu karşılaştırmak için kullanılan anahtar. Sonucun bütün satırları küme olarak alınır: satır sırası ve tekrar eden satırlar önemsiz, sütun sırası önemli (BIRD'ün resmi kuralı). Cevap, result key'i doğru SQL'inkiyle aynıysa doğrudur |
@@ -86,9 +86,9 @@ BIRD dev'de bu bağlam en fazla ~12K token; modelin bağlam sınırının çok a
 Agent her turda tek bir tool call yapar. Prompt ona bir çalışma sırası verir: önce soruyu cevaplayan SQL'i yaz ve çalıştır (keşif sorgusuyla başlama), sonuca bak, gerekirse düzelt, sonuç soruyu cevaplıyorsa `submit` et.
 - Soruyu cevaplayan SQL'i denemek istiyorsa → `execute_sql` → 4
 - Bir değerin veritabanında nasıl yazıldığını bilmiyorsa → `search_values` → 3
-- En son çalıştırdığı SQL'in sonucu soruyu cevaplıyorsa → `submit` → 7
+- Çalıştırdığı bir SQL soruyu cevaplıyorsa → o SQL'le `submit` → 7. Arada attığı sorgular (kontrol, düzeltme) cevabı etkilemez
 
-Her observation'dan sonra agent buraya döner. Agent her adımda en olası cevabı seçer (temperature 0). Son çağrısı reddedildiyse ya da bir tekrarsa, aynı girdiye yine aynı cevabı vereceği için sıradaki adım örneklenir (temperature 0.7). Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "en son çalıştırdığın sorgu soruyu cevaplıyorsa şimdi submit et" hatırlatması da eklenir. Agent ilk 4 tool call'ında dolu sonuç veren hiçbir SQL çalıştıramadıysa ilerlemiyor sayılır ve harness işi hemen teacher'a verir → 8; teacher kısa bir geçmişle başlar, boşa adım ve maliyet harcanmaz. Budget biterse de harness handoff'u zorlar → 8.
+Her observation'dan sonra agent buraya döner. Agent her adımda en olası cevabı seçer (temperature 0). Son çağrısı reddedildiyse ya da bir tekrarsa, aynı girdiye yine aynı cevabı vereceği için sıradaki adım örneklenir (temperature 0.7). Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa onu şimdi submit et" hatırlatması da eklenir. Agent ilk 4 tool call'ında dolu sonuç veren hiçbir SQL çalıştıramadıysa ilerlemiyor sayılır ve harness işi hemen teacher'a verir → 8; teacher kısa bir geçmişle başlar, boşa adım ve maliyet harcanmaz. Budget biterse de harness handoff'u zorlar → 8.
 
 **Guardrail'ler.** Küçük modeller bazı tipik hataları sık yapar; bunlar sistemi bozmasın diye harness her adımda üç basit kural uygular (DualSQL).
 1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 8. Yalnızca kendi tekrarları sayılır: teacher'ın agent'ın denediği bir çağrıyı yinelemesi onu takılmış saymaz. `submit` tekrar sayılmaz; onu final check sınırlar (adım 7).
@@ -128,11 +128,11 @@ Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye). Agent'
 
 ### 7. `submit` → final check
 
-`submit` argüman almaz: cevap, agent'ın **en son çalıştırdığı SQL**'dir. Agent cevabı yeniden yazmaz; böylece sonucunu gördüğü sorguyu yazarken bozamaz. Cevap dönmeden önce son kontrol:
-- **Çalıştırılmış bir SQL var mı?** Agent hiç SQL çalıştırmadan `submit` ederse geçmez.
-- **Salt okuma mı, tablolar ve sütunlar var mı, hatasız çalışıyor mu?** (adım 5–6; sonuç cache'ten gelir). Hata veren cevap geçmez. Boş sonuç geçer, çünkü agent onu çalıştırıp görmüştür.
+Agent cevap olarak seçtiği SQL'i `submit(sql="SELECT ...")` ile gönderir; arada attığı sorgular cevabı etkilemez. Cevap dönmeden önce son kontrol:
+- **Salt okuma mı, tablolar ve sütunlar var mı, hatasız çalışıyor mu?** (adım 5–6; agent bu SQL'i daha önce çalıştırdıysa sonuç cache'ten gelir). Hata veren cevap geçmez. Boş sonuç geçer.
+- **Agent bu SQL'in sonucunu görmüş müydü?** Agent sonucuna bakmadığı bir cevabı gönderemez. Görmediyse harness sorguyu çalıştırır, sonucunu agent'a gösterir ve "soruyu cevaplıyorsa yeniden submit et" der → 2. Bu bir hata sayılmaz. Örnek: agent hiç denemeden `WHERE County = 'Alemeda'` yazdıysa boş sonucu burada görür ve değeri düzeltir. Agent'a en fazla 20 satır gösterildiği için büyük sonuçlar sorun olmaz.
 
-Geçti → **cevap döner ✔** (label `ok`). Geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
+Geçti → **cevap döner ✔** (label `ok`). Final check'ten geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
 
 ### 8. Handoff
 
@@ -165,7 +165,6 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 | Karar | Neden | Dayanak |
 |---|---|---|
 | Son cevap her zaman gerçekten çalıştırılır | Çalıştırılmamış bir SQL'in doğru olduğu bilinemez | — |
-| Cevap, agent'ın en son çalıştırdığı SQL'dir (`submit` argümansız) | Agent sonucunu gördüğü sorguyu yeniden yazarken bozamaz | — |
 | Agent önce cevabı yazar, keşif sorgusuyla başlamaz | Keşif sorgularıyla başlayan küçük model çoğu zaman keşifte kalıyor ve cevabı hiç yazmıyor | — |
 | Hata notu düzeltmek için gerekeni söyler | Küçük modeller hatayı ancak neyin yanlış olduğu açıkça yazılırsa düzeltebilir (ör. sorgudaki tabloların gerçek sütunları) | DualSQL |
 | Temperature 0; takılınca örnekleme | En olası cevap tek SQL'de daha doğru; ama aynı girdiye hep aynı cevap verildiği için reddedilen ya da tekrarlanan çağrıdan sonra örneklenir | — |

@@ -9,8 +9,8 @@ COUNT_SQL = "SELECT COUNT(*) FROM items"
 
 def test_teacher_continues_after_forced_handoff(db, fake_model):
     replies, seen = fake_model
-    replies += [submit_reply(), submit_reply(),  # agent: hiç SQL çalıştırmadan 2 kez submit, final check geçmedi
-                execute_reply(COUNT_SQL), submit_reply()]  # teacher
+    replies += [submit_reply("SELECT town FROM items"), submit_reply("SELECT town FROM items"),  # agent: 2 kez geçmedi
+                execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher
     answer = loop.answer_question("How many items?", "", db)
     takeover = observation(seen[2][-1])
     assert takeover.startswith("A smaller agent worked on this question and handed it over to you. "
@@ -22,8 +22,8 @@ def test_teacher_continues_after_forced_handoff(db, fake_model):
 def test_teacher_submit_goes_through_the_final_check(db, fake_model):
     replies, seen = fake_model
     replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS
-    replies += [execute_reply("SELECT town FROM items"), submit_reply(),  # teacher: önce çalışmayan bir SQL
-                execute_reply(COUNT_SQL), submit_reply()]
+    replies += [submit_reply("SELECT town FROM items"),  # teacher: önce çalışmayan bir SQL
+                execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == "ilerleme yok"
     assert observation(seen[-2][-1]).startswith("Final check failed: Rejected before running: no such column: town")

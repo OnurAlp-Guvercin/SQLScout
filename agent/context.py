@@ -29,9 +29,9 @@ class Context:
     calls: int = 0  # soru boyunca toplam tool call (agent + teacher); sonuç dosyasına yazılır
     calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden (yarım) dolar
     cache: dict = field(default_factory=dict)  # execute_sql.sql_key(sql) → gerçek sonuç (adım 5)
+    seen: set = field(default_factory=set)  # sonucunu agent'ın gördüğü SQL'ler (execute_sql.sql_key); submit buna bakar
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
-    last_run_sql: str = None  # agent'ın en son yazdığı SQL; submit bunu cevap olarak gönderir
     last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; fallback answer'da kullanılır
     handoff_reason: str = None
 

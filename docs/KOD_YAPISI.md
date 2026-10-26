@@ -25,7 +25,7 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 | `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
 | `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`). Değer bulunamazsa adı benzeyen sütunlar (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). |
-| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i: en son çalıştırılan SQL cevaptır; 2 kez geçmezse handoff. `final_check`: çalıştırılmış bir SQL var mı, pre-check, hatasız çalışıyor mu |
+| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i; 2 kez geçmezse handoff; agent sonucu görmediyse önce sonucu gösterir (`context.seen`). `final_check`: pre-check, hatasız çalışıyor mu |
 | `harness/guards.py` | Her adım | `read_tool_call`: modelin cevabını bir adım olarak okur (tool call ya da ` ```sql ` bloğu); bozuk çıktının reddi. `earlier_calls`: aynı çağrının tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
@@ -47,7 +47,7 @@ Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call b
 |---|---|---|---|
 | `search_values` | `query` | Kelimeyi içeren ya da ona benzer yazılan en ilgili 5 değer: `tablo.sütun = 'değer'` | Adım 3 |
 | `execute_sql` | `sql` | Gerçek sonuç (en fazla 20 satır; boşsa `search_values` hatırlatması) ya da pre-check notu | Adım 4–6 |
-| `submit` | (yok) | En son çalıştırılan SQL cevap olarak return edilir ya da final check notu | Adım 7 |
+| `submit` | `sql` | Cevap return edilir; ya da final check notu, ya da agent sonucu görmediyse sonuç | Adım 7 |
 
 - **`search_values`:** Metin sütunlarının farklı değerlerinden kurulmuş bir SQLite FTS5 index'inde arar. Index trigram'lıdır (kelimenin bir parçası da eşleşir); adaylar `difflib` ile yazım benzerliğine göre sıralanır, böylece "Los Angles" araması "Los Angeles"ı bulur. Index her veritabanı için bir kez kurulur ve `data/prepared/<db_id>/values.sqlite`'ta saklanır.
 
@@ -89,9 +89,9 @@ def run_steps(context):
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(sql, context)                  # adım 4–6
         else:
-            outcome = submit.run(last_run_sql, context)             # adım 7: cevap en son çalıştırılan SQL
+            outcome = submit.run(sql, context)                      # adım 7
             if outcome["done"]:
-                return context.answer(last_run_sql, "ok")
+                return context.answer(sql, "ok")
             if outcome["handoff"]:
                 return None                                         # final check 2 kez geçmedi → adım 8
             result = outcome["note"]                                # final check notu → adım 2

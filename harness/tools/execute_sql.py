@@ -16,13 +16,15 @@ def run(sql, context):
        return edilir.
     2. run_sql (adım 6): sorgu çalıştırılır; aynı SQL bu soruda daha önce çalıştıysa sonuç cache'ten gelir.
     3. format_result: sonuç metne çevrilir (en fazla 20 satır; boşsa search_values hatırlatması).
-    4. Hatasız ve dolu sonuç context.last_ok_sql olur (fallback için).
+    4. SQL context.seen'e eklenir: agent sonucunu gördü (submit buna bakar). Hatasız ve dolu sonuç context.last_ok_sql
+       olur (fallback için).
     Return: agent'a gidecek metin, ör. "Columns: superhero_name\n358 rows (first 20 shown):\n..." ya da pre-check notu."""
     note = check(context.db_path, sql)  # adım 5
     if note:
         return note
     result = run_sql(sql, context)  # adım 6
     text = format_result(result)
+    context.seen.add(sql_key(sql))
     if result["ok"] and result["row_count"] > 0:
         context.last_ok_sql = sql
     return text
@@ -114,7 +116,7 @@ def run_sql(sql, context):
 
 
 def sql_key(sql):
-    """Cache'in ve tekrar guardrail'inin key'i: boşlukları sadeleştirilmiş SQL metni."""
+    """Cache'in, tekrar guardrail'inin ve context.seen'in key'i: boşlukları sadeleştirilmiş SQL metni."""
     return " ".join(sql.split())
 
 

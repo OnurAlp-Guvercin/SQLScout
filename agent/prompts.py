@@ -30,7 +30,7 @@ lists every table and column: do not query sqlite_master and do not run explorat
 2. Look at its real result. If it shows an error, no rows or something unexpected, run a fixed query. The value \
 samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not among them or in the evidence, \
 call `search_values` to find its exact spelling and its column.
-3. When the result of the last query you ran answers the question, call `submit`. Do not change a query whose \
+3. When a query you ran answers the question, call `submit` with exactly that query. Do not change a query whose \
 result already answers the question.
 
 {SQL_RULES}"""
@@ -38,7 +38,7 @@ result already answers the question.
 # Handoff (adım 8): teacher, agent'ın konuşmasını bu notla devralır.
 TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over to you. Reason: {reason}.
 Everything it tried is above. Continue from here: you have a new budget of {budget} tool calls. \
-When the result of the last query you ran answers the question, call `submit`."""
+When you know the SQL query that answers the question, call `submit` with it."""
 
 # Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur. Agent SQL'i mesajında ```sql bloğu
 # olarak yazarsa o da execute_sql sayılır (harness/guards.py read_tool_call).
@@ -60,8 +60,10 @@ EXECUTE_SQL = {"type": "function", "function": {
 
 SUBMIT = {"type": "function", "function": {
     "name": "submit",
-    "description": "Submit the last query you ran as the final answer. This ends the task.",
-    "parameters": {"type": "object", "required": [], "properties": {}},
+    "description": "Submit the SQLite query that answers the question as the final answer. Run it with execute_sql "
+                   "first and look at its result. This ends the task.",
+    "parameters": {"type": "object", "required": ["sql"],
+                   "properties": {"sql": {"type": "string", "description": "The final SQLite query."}}},
 }}
 
 TOOLS = [SEARCH_VALUES, EXECUTE_SQL, SUBMIT]

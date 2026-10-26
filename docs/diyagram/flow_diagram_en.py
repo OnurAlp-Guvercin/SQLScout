@@ -100,7 +100,7 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
 <li>First write and run the SQL that answers the question</li>
 <li>Look at the real result, fix it if needed</li>
-<li>If the result answers the question, <i>submit</i>: the answer is the last SQL run</li></ul>
+<li><i>submit</i> the SQL that answers the question</li></ul>
 <p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows</p></div>''')
 
 # handoff from agent (top)
@@ -124,7 +124,7 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1036,324,128,'decision','Final check','Answer: the last SQL run · read-only + existing tables/columns · does it run without error?',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','Does the submitted SQL run without error · has the agent seen its result (if not, it is shown first)',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 
@@ -153,7 +153,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. The answer is the last SQL it ran and passes a final check; everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. It submits the SQL it chooses as the answer; the answer passes a final check, and everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
