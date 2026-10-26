@@ -3,7 +3,6 @@ Akışta adım 1 (başlangıç bağlamı) bunu kullanır. Veritabanı salt okunu
 
 import csv
 import io
-import json
 from pathlib import Path
 
 import config
@@ -87,8 +86,8 @@ def profile_column(conn, table, column, column_type, total):
 
 
 def descriptions(db_path):
-    """Sütun açıklamaları: BIRD'de veritabanının yanındaki database_description/<tablo>.csv dosyaları,
-    Mini-Interact'te <db>_column_meaning_base.json. Return: {tablo: {sütun: açıklama}}, adlar küçük harfle. Açıklama dosyası yoksa boş."""
+    """Sütun açıklamaları: BIRD'de veritabanının yanındaki database_description/<tablo>.csv dosyaları.
+    Return: {tablo: {sütun: açıklama}}, adlar küçük harfle. Açıklama dosyası yoksa boş."""
     folder = Path(db_path).parent / "database_description"
     found = {}
     for csv_path in sorted(folder.glob("*.csv")):
@@ -98,15 +97,6 @@ def descriptions(db_path):
             if name:
                 columns[name] = describe_row(row)
         found[csv_path.stem.lower()] = columns
-
-    meanings = Path(db_path).with_name(f"{Path(db_path).stem}_column_meaning_base.json")
-    if meanings.exists():  # Mini-Interact: {"db|tablo|sütun": açıklama}; JSON sütunlarında alanların anlamı da var
-        for key, meaning in json.loads(meanings.read_text()).items():
-            _, table, column = key.split("|")
-            if isinstance(meaning, dict):
-                fields = "; ".join(f"{name}: {text}" for name, text in meaning["fields_meaning"].items())
-                meaning = f"{meaning['column_meaning']} Fields: {fields}"
-            found.setdefault(table.lower(), {})[column.lower()] = clean(meaning)
     return found
 
 

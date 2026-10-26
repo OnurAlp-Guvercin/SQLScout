@@ -2,13 +2,13 @@
 
 Turkish original: [../AGENTIC_FLOW.md](../AGENTIC_FLOW.md)
 
-**Agentic Text-to-SQL with an agent loop, candidate selection and handoff.**
+**Agentic Text-to-SQL with an agent loop, a final check and handoff.**
 
-A small policy agent solves the question with tools: it searches for values, tries SQL, looks at the result and asks the user if needed. The answer passes a gate that checks whether independently written SQL queries give the same result, and every answer that is returned has actually been executed. If the agent gets stuck, the task is handed over to a large teacher LLM (handoff). The literature behind the design is in [RESEARCH.md](RESEARCH.md); the structure of the code is in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
+A small policy agent solves the question with tools: it searches for values, tries SQL, looks at the result and fixes it. The answer is the last SQL query the agent ran, and it passes a final check; every answer that is returned has actually been executed. If the agent makes no progress or gets stuck, the task is handed over to a large teacher LLM (handoff). The literature behind the design is in [RESEARCH.md](RESEARCH.md); the structure of the code is in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 
 ## Flow
 
-**In short:** question → initial context (1) → agent loop: search or ask (3), try SQL (4–6) → `submit` → candidates (7) → confidence gate (8) → final check (9) → answer. If the agent gets stuck, the teacher takes over (10).
+**In short:** question → initial context (1) → agent loop: search for values (3), try SQL (4–6) → `submit` → final check (7) → answer. If the agent gets stuck, the teacher takes over (8).
 
 ![PGS flow](../PGS_flow_EN.png)
 
@@ -18,9 +18,9 @@ A small policy agent solves the question with tools: it searches for values, tri
 | 🟩 Green | Harness (no LLM) |
 | 🟥 Red | Real database |
 | 🩵 Turquoise | Teacher LLM |
-| 🟪 Purple | Harness decision (confidence gate, final check) |
+| 🟪 Purple | Harness decision (final check) |
 | ⬜ Dashed | After the question: experience log, agent training (later) |
-| ⚪ White, rounded | Outside the system: the user's question, the user who answers `ask_user`, and the returned answer |
+| ⚪ White, rounded | Outside the system: the user's question and the returned answer |
 
 Arrow colors: **black** tool call, **blue** observation returned to the agent, **purple** decision result, **turquoise** handoff, **dashed** after the question.
 
@@ -32,48 +32,41 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 | Tool call | The single request the agent makes in one turn (e.g. `execute_sql`) |
 | Observation | The result returned to the agent after a tool call |
 | Tool-call budget | The maximum number of tool calls for one question (10) |
-| Trial loop | The loop in which the agent searches, asks, tries, looks at the result and fixes (steps 2–6) |
+| Trial loop | The loop in which the agent searches, tries, looks at the result and fixes (steps 2–6) |
 | Column profile | A summary of a column: type, NULL ratio, most frequent values (all of them for columns with few values), min and max if numeric |
-| Harness | The plain code around the agent: runs the tools, manages the checks and the gate. No LLM inside |
+| Harness | The plain code around the agent: runs the tools, manages the checks and the handoff. No LLM inside |
 | Pre-check | The cheap checks the harness makes before a SQL query runs: is it read-only, does `EXPLAIN` fail, is it in the cache (step 5) |
 | Cache | The stored results of SQL queries that already ran for the same question; the same SQL is not run again |
-| Confidence gate | The decision point that checks whether the candidates agree enough (step 8) |
-| Final check | The last check before the answer is returned: did it really run, no error, if empty was that expected (step 9) |
-| Candidate | An alternative SQL query written for the same question |
-| Consensus | Different candidates giving the same result |
-| Adaptive rule | The rule that picks the number of candidates: first 2 extra candidates, 8 in total if they do not agree (step 7) |
+| Final check | The last check before the answer is returned: has a SQL query been run, does it run without error (step 7) |
 | Handoff | Handing the task over to the large teacher model |
 | Evidence | The short hint text BIRD gives with each question (e.g. "returned = `status = 'returned'`") |
-| `ask_user` | The tool with which the agent asks the user a short clarification question on an ambiguous question (e.g. "count or amount?") |
-| Clarification | The user's answer to an `ask_user` question. It counts as part of the question |
-| Search notes | A copy of the search results, kept separately for the candidate prompt |
-| Medium note | The note returned to the agent when the confidence gate says medium: a summary of the two largest candidate groups |
-| Result key | The key used to compare query results. All rows of the result are taken as a set: row order and duplicate rows do not matter, column order does (BIRD's official rule). Two results with the same key count as "the same result" |
-| Fallback answer | The best answer returned when no answer passes the checks; it carries the `low_confidence` label |
-| Label | The label of the returned answer: `ok` (passed the checks), `low_confidence` (did not pass but there is an answer), `no_answer` (no SQL that ran) |
+| Result key | The key used to compare query results. All rows of the result are taken as a set: row order and duplicate rows do not matter, column order does (BIRD's official rule). An answer is correct if its result key equals the correct SQL's |
+| Fallback answer | The answer returned when no answer passes the final check: the last SQL that ran without error and returned rows; it carries the `fallback` label |
+| Label | The label of the returned answer: `ok` (passed the final check), `fallback` (did not pass but a SQL that runs exists), `no_answer` (no SQL that returned rows) |
+| Base | The tool-free single SQL used for comparison: the model sees the step 1 context and writes one SQL query in one go (`baseline.py`) |
 | Experience log | The record of each question's whole conversation (every step of the agent and the teacher), the answer and whether it is correct; the agent's training data comes from here |
 | Split | A part of the data: train or dev (evaluation). Only train is used for training |
 | SFT | Training a model to imitate correct examples |
 | On-policy distillation | Training the student model on its own attempts, corrected by the teacher |
 | RL | Training a model with rewards and penalties based on the outcome of its attempts |
 | Guardrail | The harness rules that protect the agent: no repeated calls, long results are trimmed, the context is compressed when full |
+| Temperature | The randomness in the model's reply: at 0 always the most likely reply, more varied as it grows |
 | EXPLAIN | The database showing its plan for a query without running it. In SQLite it also catches syntax errors and missing tables/columns without running |
 | Seed | A number that fixes randomness; repeating with different seeds shows that a result is not luck |
-| Phase / stage | Phase: a large period (Phase 1 BIRD, Phase 2 Mini-Interact). Stage: a small numbered piece of work that adds a single part (CODE_STRUCTURE.md "Build order") |
+| Stage | A small numbered piece of work that adds a single part (CODE_STRUCTURE.md "Build order") |
 
 ## Components
 
-- **Policy agent (Qwen3.5-4B):** Decides which tool to call at each step. Used untrained for now; later it is trained inside the harness with the experience log.
-- **Harness (plain Python, no LLM):** Runs the tools, makes the checks, manages the confidence gate and the final check. It also applies the guardrails.
-- **Database (SQLite, read-only):** `execute_sql`.
-- **User:** Answers `ask_user` questions. The question always comes to the terminal, in `run.py` and in `evaluate.py` alike. The person running the experiment answers in one sentence, like a user who knows what the question means; they do not reveal the SQL or the result. The correct SQL never enters the agent's context; it is used only for scoring.
-- **Teacher LLM (Qwen3.6-27B, 4-bit):** Used only after a handoff. Continues where the agent left off.
+- **Policy agent:** Decides which tool to call at each step. Currently the local `Qwen3.5-0.8B`; the target is `Qwen3.5-4B`. Used untrained for now; later it is trained inside the harness with the experience log.
+- **Harness (plain Python, no LLM):** Runs the tools, makes the checks and the final check, decides on the handoff. It also applies the guardrails.
+- **Database (SQLite, read-only):** `execute_sql`. The correct SQL never enters the agent's context; it is used only for scoring.
+- **Teacher LLM:** Used only after a handoff; continues where the agent left off. Currently `Qwen3.5-9B` on the OpenRouter API; the target is a local `Qwen3.6-27B` (4-bit).
 
 ## The flow step by step
 
 The numbers in the figure are these steps. The division of work is simple:
-- **The agent** decides what to do: which tool, which SQL, what to ask the user, when to `submit`.
-- **The harness** decides everything else: the checks, the candidates, the confidence gate, the final check, the handoff.
+- **The agent** decides what to do: which tool, which SQL, when to `submit`.
+- **The harness** decides everything else: the checks, the final check, the handoff.
 
 Tool arguments and numeric limits are in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 
@@ -84,51 +77,46 @@ Tool arguments and numeric limits are in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 The harness gives the agent:
 - The question and, if any, the evidence.
 - The schema: tables, columns, BIRD's column descriptions, foreign keys.
-- Column profiles. For text columns, the 10 most frequent values (for columns with at most 10 distinct values, e.g. `status`, all values); the agent finds the remaining values with `search_values` if needed. For numeric columns, only the smallest and largest value.
+- Column profiles. For text columns the 10 most frequent values (all values for columns with at most 10 distinct values, e.g. `status`); the agent finds the remaining values with `search_values` if needed. For numeric columns only the minimum and maximum.
 
-The context is at most 16K tokens. If it overflows, an LLM selects the tables the question needs (schema linking): the schema is split into chunks that fit, the model writes the names of the needed tables from each chunk, and the selections are joined. Tables that are not selected shrink to one line (only column names and types). The model does not rewrite the schema, it only selects tables, so it cannot invent a column. On BIRD dev and Mini-Interact the context never exceeds this limit (the largest is ~14K).
+The context is at most 16K tokens. If it overflows, an LLM selects the tables the question needs (schema linking): the schema is split into parts that fit, the model writes the names of the tables needed from each part, and the selections are merged. Tables that are not selected shrink to one line (column names and types only). The model does not rewrite the schema, it only selects tables; so it cannot invent a column. In BIRD dev the context never exceeds this limit (the largest is ~14K).
 
 → 2
 
 ### 2. The agent decides what to do
 
-The agent makes a single tool call each turn:
+The agent makes a single tool call each turn. The prompt gives it an order of work: first write and run the SQL query that answers the question (do not start with an exploratory query), look at the result, fix it if needed, and submit when the result answers the question.
+- If it wants to try the query that answers the question → `execute_sql` → 4
 - If it does not know how a value is written in the database → `search_values` → 3
-- If the question is ambiguous and the schema, values or evidence do not resolve it → `ask_user` → 3
-- If it wants to try a SQL query → `execute_sql` → 4
-- If it is confident in the answer → `submit` → 7
+- If the result of the last query it ran answers the question → `submit` → 7
 
-After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if a query you ran answers the question, submit it now". If the budget runs out, the harness forces a handoff → 10.
+After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if the last query you ran answers the question, submit now". If the agent has not run any SQL that returned rows in its first 4 tool calls, it is considered not to be making progress and the harness hands over to the teacher right away → 8; the teacher starts with a short history, and no steps or money are wasted. If the budget runs out, the harness also forces a handoff → 8.
 
 **Guardrails.** Small models often make certain typical mistakes; so that these do not break the system, the harness applies three simple rules at every step (DualSQL).
-1. **No repeats:** If the same call (same tool, same arguments) comes a second time, it is not run; a "you already tried this" note and the earlier result are returned, and the budget still goes down. If the same call is repeated a third time, the agent is considered stuck and the harness hands over → 10. Only its own repeats count: the teacher repeating a call the agent made does not make the teacher stuck. `submit` counts as a repeat only when it resends a SQL query that does not run; resending the same SQL after a medium note is a valid choice.
+1. **No repeats:** If the same call (same tool, same arguments) comes a second time, it is not run; a "you already tried this" note and the earlier result are returned, and the budget still goes down. If the same call is repeated a third time, the agent is considered stuck and the harness hands over → 8. Only its own repeats count: the teacher repeating a call the agent made does not make the teacher stuck. `submit` does not count as a repeat; the final check limits it (step 7).
 2. **Long results are trimmed:** The agent sees at most 20 rows, with the total number of rows next to them.
 3. **The context is compressed:** If the conversation exceeds 32K tokens, the oldest results shrink to a one-line summary (e.g. "Columns: name | 358 rows").
 
-### 3. Gathering information: `search_values` and `ask_user`
+### 3. Searching for values: `search_values`
 
-The agent can use these whenever it wants. Since step 1 is rich, they are rarely needed for most questions.
-- **`search_values`:** Finds in which column, and as which value, a word appears in the database, including similarly spelled values. Example: "Los Angles" → `city = 'Los Angeles'`. If it finds no value and the word looks like a column name, it names those columns; small models also look for column names with this tool. Example: "Consumption" → the column `yearmonth.Consumption`.
-- **`ask_user`:** A short question is asked only if only the user can clarify the question. Example: "count or amount?" → "count". At most 5 times per question (agent and teacher combined).
+Since step 1 is rich, it is rarely needed. `search_values` finds in which column, and as which value, a word appears in the database, including similarly spelled values. Example: "Los Angles" → `city = 'Los Angeles'`. If it finds no value and the word looks like a column name, it names those columns; small models also look for column names with this tool. Example: "Consumption" → the column `yearmonth.Consumption`.
 
-Search cannot find everything: if the question says "iade" (Turkish for "returned") and the database says `'returned'`, they do not match. In this case the evidence usually provides the match; if it does not, the agent asks the user, or gets an empty result with the wrong value; the note under the empty result steers it to check the value's spelling with `search_values`.
-
-The result is returned to the agent as an observation. The harness also keeps a copy: search results as **search notes**, the user's answers as **clarifications**. Both are given to the candidates in step 7. Why a copy? The candidates do not see the agent's history; if they did, they would copy the agent's SQL. Thanks to the copy they get the information that was found (e.g. `'returned'`), not the SQL.
+Search cannot find everything: if the question says "iade" (Turkish for "returned") and the database says `'returned'`, they do not match. In this case the evidence usually provides the match; if it does not, the agent gets an empty result with the wrong value; the note under the empty result steers it to check the value's spelling with `search_values`.
 → 2
 
 ### 4. The `execute_sql` request
 
-The agent sends the SQL it wants to try with `execute_sql(sql="SELECT ...")`.
+The agent sends the SQL it wants to try with `execute_sql(sql="SELECT ...")`. If it writes the SQL in a ` ```sql ` block in its message instead of a tool call, that is run the same way.
 → 5
 
 ### 5. Pre-check
 
 **Why:** To catch a broken query the cheap way, without running it.
 
-The agent's SQL queries, the candidates and the final check go through here. The harness asks three questions in order:
+The agent's SQL queries and the final check go through here. The harness asks three questions in order:
 1. **Does it write?** If it does not start with `SELECT` or `WITH`, it is rejected. Example: `DELETE FROM orders`.
 2. **Is it broken?** `EXPLAIN` catches syntax errors, missing tables and columns without running the query. The note also says what is needed to fix the error: which tables have the missing column, the alias of a table that was written by its own name after being given an alias, and the real columns of the tables in the query; for a missing table, the tables of the database. Example: `no such column: cc.client_id` → "client_id exists in: client, disp. Tables in your query and their columns: card (cc): card_id, disp_id, type, issued; ...".
-3. **Did it already run (cache)?** If so, it is not run again; the stored result is used. Example: a candidate rewrites the agent's SQL exactly.
+3. **Did it already run (cache)?** If so, it is not run again; the stored result is used. Example: the final check runs again a SQL query the agent already ran.
 
 The note of a query stopped at 1–2 is returned to the agent (→ 2).
 → 6
@@ -138,60 +126,39 @@ The note of a query stopped at 1–2 is returned to the agent (→ 2).
 The query runs read-only on the database (at most 30 seconds). The real result is returned to the agent: the columns, the number of rows, at most 20 rows, or the error message. If the result is empty, a note is added under it: "if the query filters on a text value, check how it is written with `search_values`"; a misspelled value is the most common cause of an empty result.
 → 2
 
-> Steps 2 → 6 are the agent's **trial loop**: search, ask, try, look at the result, fix.
+> Steps 2 → 6 are the agent's **trial loop**: search, try, look at the result, fix.
 
-### 7. `submit` → candidates
+### 7. `submit` → final check
 
-**Why:** A SQL query running without errors does not show that it is correct. The strongest signal is independently written SQL queries giving the same result (consensus).
+`submit` takes no arguments: the answer is **the last SQL query the agent ran**. The agent does not rewrite the answer, so it cannot break the query whose result it saw while rewriting it. The last check before the answer is returned:
+- **Has a SQL query been run?** If the agent submits without having run any query, it does not pass.
+- **Is it read-only, do the tables and columns exist, does it run without error?** (steps 5–6; the result comes from the cache). An answer that gives an error does not pass. An empty result passes, since the agent ran it and saw it.
 
-- **First:** If the submitted SQL does not run (it fails the pre-check or gives an error), no candidates are generated; the error goes back to the agent (→ 2).
-- **Who writes them:** The agent's SQL is also a candidate. The others are written by the model that submitted (the policy for the agent's submit, the teacher for the teacher's), tool-free, in one go. Each candidate is a separate sample (temperature 0.8); since the agent runs at temperature 0, the candidates are not copies of its SQL. The prompt contains the step 1 context, the search notes and the clarifications. The agent's SQL is not put into the prompt; if it were, the model would copy it.
-- **How many (adaptive rule):** First 2 extra candidates. If they all give the same result as the agent's SQL, it stops. If they disagree, the total is filled up to 8.
-- **How they run:** Each candidate goes through steps 5–6. A SQL that already ran comes from the cache. Candidates do not take from the budget, and their results are not returned to the agent (the only exception is the medium note in step 8).
-- **Grouping:** Candidates with the same result key, i.e. the same real result, form a group. A candidate that gives an error joins no group.
-- **Selection:** The largest group is selected. On a tie, the group containing the earliest candidate; the agent's SQL comes first, so its group wins. The group's answer is its first SQL.
-- **Second `submit`:** If the agent submits again after a medium note or a final check note, the candidates are generated from scratch, because the search notes and clarifications may have changed.
-→ 8
+Passed → **the answer is returned ✔** (label `ok`). Not passed → the reason is returned to the agent as a note → 2. If it fails a second time → 8.
 
-### 8. Confidence gate
+### 8. Handoff
 
-The decision looks only at consensus: how many candidates are in the largest group?
-- **High:** 3/3 or at least 6 of 8 → 9.
-- **Medium:** 4–5 of 8 → a medium note is returned to the agent → 2. The note shows the two largest groups: a representative SQL, how many candidates it is in, the columns, the number of rows, the first 3 rows. The agent can pick one and submit again, make a new attempt, or ask with `ask_user`. This happens at most once; a second medium → 10.
-- **Low:** at most 3 of 8 → 10.
-
-### 9. Final check
-
-The last check before the answer is returned:
-- **Is it read-only, do the tables and columns exist?** (step 5)
-- **Does it really run?** The selected SQL must have really run (it ran in step 7; the result comes from the cache); so every returned answer has really been executed. An answer that gives an error does not pass.
-- **If the result is empty, did the agent see it?** An empty result passes only if the agent ran this SQL with `execute_sql` before and saw that it is empty. If not (e.g. the selected SQL is a candidate), it does not pass.
-
-Passes → **the answer is returned ✔** (label `ok`). Does not pass → the reason is returned to the agent as a note → 2. If it fails a second time → 10.
-
-### 10. Handoff
-
-The harness makes the handoff: out of budget, the same call repeated 3 times, confidence low, medium a second time, the final check failed twice.
+The harness does the handoff: no progress in the first 4 steps, the same call repeated 3 times, the final check failing twice, or the budget running out.
 - The teacher does not start from scratch; it continues where the agent left off: it sees the whole conversation and the reason for the handoff.
-- It works with a new budget of half the agent's (5 tool calls) and the same tools (steps 2–6). For `ask_user` it uses only the question's remaining allowance.
-- The teacher's `submit` goes through the candidates, the confidence gate and the final check, like the agent's (steps 7–9). These candidates are written by the teacher itself; the small model's candidates do not vote on the large model's answer. So an answer the gate rejected is not accepted just because the teacher sends it again. If the gate gets stuck again (low, a second medium, the final check failing twice) or the teacher does not submit within its budget, the fallback answer is returned.
+- It works with a new budget half the size of the agent's (5 tool calls) and the same tools (steps 2–7).
+- The teacher's `submit` goes through the final check like the agent's (step 7). If the final check fails twice again, or the teacher does not submit within its budget, the fallback answer is returned.
 
-**Fallback answer** order: the SQL most recently selected in step 7 → otherwise the candidates' consensus (the model writes 8 tool-free SQL queries, the largest group's SQL) → otherwise the most recent SQL that ran without error → otherwise no answer. The first three are returned with the `low_confidence` label, the last with `no_answer`. A SQL that does not run is never the answer.
+**Fallback answer:** the last SQL of the agent or the teacher that ran without error and returned rows (`fallback`); otherwise no answer (`no_answer`). A SQL query that does not run is never an answer.
 → Answer ✔
 
-**The returned answer:** the SQL, the label (`ok`, `low_confidence`, `no_answer`) and who found the answer (agent or teacher).
+**The returned answer:** the SQL, the label (`ok`, `fallback`, `no_answer`) and who found the answer (agent or teacher).
 
 ### Two examples
 
 **Example 1 ("Which category had the most returns in 2025?"):**
-1 (evidence: returned = `status = 'returned'`) → 2 → 4 (SQL) → 5 → 6 (real result: 1 row) → 2 → 7 → 8 (high: 3/3) → 9 → ✔
+1 (evidence: returned = `status = 'returned'`) → 2 → 4 (SQL) → 5 → 6 (real result: 1 row) → 2 → 7 (final check passed) → ✔
 
-**Example 2 (same question, if the candidates disagree):**
-1 → 2 → 4 → 5 → 6 → 2 → 7 → 8 (medium: 5 of 8 candidates count items, 3 sum the amount; the medium note shows both groups) → 2 → 3 (`ask_user`: "count or amount?" → "count") → 2 → 7 (the clarification is now in the prompt) → 8 (high: 7/8) → 9 → ✔
+**Example 2 (the same question, the agent writes a wrong column and a wrong value):**
+1 → 2 → 4 → 5 (`no such column: o.state`; the note shows the real columns of the tables in the query) → 2 → 4 (fixed SQL) → 5 → 6 (empty result) → 2 → 3 (`search_values`: "returnd" → `status = 'returned'`) → 2 → 4 → 5 → 6 (1 row) → 2 → 7 → ✔
 
 ### After the question
 
-**Experience log:** When a question ends, wherever it was run from (`run.py`, `evaluate.py` or an application in use), one line is written: the whole conversation the agent (and, after a handoff, the teacher) saw, the answer and the label. In evaluation, whether the answer is correct is also written (`split = dev`); in use there is no correct SQL, so this field stays empty (`split = use`), and the training signal there is the teacher's solutions, the label and the user's answers. Records accumulate and are never deleted.
+**Experience log:** When a question ends, wherever it was run from (`run.py`, `evaluate.py` or an application in use), one line is written: the whole conversation the agent (and, after a handoff, the teacher) saw, the answer and the label. In evaluation, whether the answer is correct is also written (`split = dev`); in use there is no correct SQL, so this field stays empty (`split = use`), and the training signal there is the teacher's solutions and the label. Records accumulate and are never deleted.
 
 **Agent training (later):** The agent is trained inside the harness it will be used in, with the records in the experience log: first SFT on the teacher's correct solutions, then on-policy distillation (the agent's own attempts, corrected by the teacher), then RL (reward: whether the answer is correct). Only records from the train split are used for training.
 
@@ -200,30 +167,30 @@ The harness makes the handoff: out of budget, the same call repeated 3 times, co
 | Decision | Why | Basis |
 |---|---|---|
 | The final answer is always really executed | Whether an unexecuted SQL is correct cannot be known | — |
-| Candidate generation & selection | The common method of the top systems on the leaderboard | Agentar-Scale-SQL, SIRIUS-SQL |
-| Results are compared with BIRD's official rule (result key) | Candidate grouping and scoring use the same measure; "the same result" is defined in one place | BIRD |
-| The `ask_user` tool is always on | Asking instead of guessing on an ambiguous question; agents give up on clarification questions too early | BIRD-Interact, PlanPool |
+| The answer is the last SQL query the agent ran (`submit` takes no arguments) | The agent cannot break the query whose result it saw while rewriting it | — |
+| The agent writes the answer first, it does not start with exploratory queries | In the measurements, the first SQL of an agent that started by exploring was correct for none of 20 questions; the single SQL was correct for 4 | — |
+| The error note says what is needed to fix it | Small models fix an error only when what is wrong is written out clearly (e.g. the real columns of the tables in the query) | DualSQL |
+| Temperature 0; sampling when stuck | The most likely reply gives a more accurate single SQL; but the same input always gets the same reply, so after a rejected or repeated call the next step is sampled | — |
+| Results are compared with BIRD's official rule (result key) | "The same result" is defined in one place | BIRD |
 | If the context limit is exceeded, an LLM selects tables (schema linking) instead of summarizing the schema | Since the model selects table names, it cannot invent a column | MAC-SQL (Selector) |
-| Step 1 gives as much information as possible (column descriptions, column profiles) | Every search costs a tool call. If the information comes up front, the budget is left for trying, and the candidates get the same information | DualSQL, HarnessSQL |
-| The uncertainty signal is candidate disagreement (medium note) | The harness has no LLM and cannot understand uncertainty itself. Disagreeing candidate groups are a measurable sign; the decision is the agent's | SIRIUS-SQL, PlanPool |
+| Step 1 gives as much information as possible (column descriptions, column profiles) | Every search costs a tool call. If the information comes up front, the budget is left for trying | DualSQL, HarnessSQL |
+| An agent that makes no progress hands over early | In the measurements, an agent that got no rows in its first 4 steps never solved that question; the teacher starts with a short history and the cost goes down | — |
 | The teacher continues where the agent left off | What the agent found is not wasted; handoff records become training data directly | OLIVE, OVCSD |
 | The agent is trained inside the harness | A model trained outside the harness drops from 30.4 to 9.6 when used in the harness | HarnessSQL |
-| Fixed thresholds and only the consensus rule | Simple and explainable; no separate verifier model is needed | What Predicts Correctness, SIRIUS-SQL |
 
 ## Build order
 
 The system was built in small, numbered stages; each stage added a single part and was tested. The list is in the "Build order" section of [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 
-1. **Phase 1, SQLite + BIRD:** foundation (database, scoring, initial context), first working agent, trial loop (guardrails, `search_values`), verifying the answer (final check, candidates, confidence gate, medium note), help (handoff, `ask_user`).
-2. **Phase 2, Mini-Interact:** `ask_user` on deliberately ambiguous questions.
-3. **Local models:** The policy and the teacher run locally.
-4. **Agent training (later):** SFT → on-policy distillation → RL with the experience log.
+1. **SQLite + BIRD:** foundation (database, scoring, initial context), first working agent, trial loop (guardrails, `search_values`), verifying the answer (final check), handoff.
+2. **Local models:** The policy and the teacher run locally.
+3. **Agent training (later):** SFT → on-policy distillation → RL with the experience log.
 
 ## Evaluation
 
 - **BIRD dev:** 1,534 questions, with evidence. Accuracy is measured with BIRD's official rule: an answer is correct if its result key is the same as the gold SQL's.
-- **Mini-Interact:** 300 ambiguous questions; the real test of `ask_user`. Its correct SQLs are requested by email; until they arrive, the questions run but are not scored.
-- **For a test,** 5–10 questions are enough (`--limit 10`). Comparisons use at least 3 seeds (0, 1, 2).
+- **Base:** the tool-free single SQL on the same questions (`baseline.py`); the agentic system is compared with it.
+- **For a test,** 10 questions are enough (`--limit 10`). Comparisons use at least 3 seeds (0, 1, 2).
 - **Ablations:** When the contribution of a part is to be measured, a flag that turns that part off is added; currently every part is always on.
 
 All thresholds are starting values; they are tuned by measurement.
@@ -232,19 +199,9 @@ All thresholds are starting values; they are tuned by measurement.
 
 Only the works that directly shaped this design. The full survey is in [RESEARCH.md](RESEARCH.md).
 
-**Pre-check and gate**
+**Pre-check**
 - CYGNET ([2606.04645](https://arxiv.org/abs/2606.04645)): cheap structural checks first (step 5).
 - CacheRL ([2606.14179](https://arxiv.org/abs/2606.14179)): a cache of real executions (step 5).
-- What Predicts Correctness in Text-to-SQL? ([2607.06799](https://arxiv.org/abs/2607.06799)): confidence signals (step 8).
-
-**Candidate selection**
-- Agentar-Scale-SQL ([2509.24403](https://arxiv.org/abs/2509.24403)): candidate generation & selection (step 7).
-- SIRIUS-SQL ([2606.01246](https://arxiv.org/abs/2606.01246)): grouping candidates by result; consensus alone being a strong signal (steps 7, 8).
-- Knowing When to Stop ([2607.03991](https://arxiv.org/abs/2607.03991)): stopping sampling early when candidates agree (step 7).
-
-**Asking the user**
-- BIRD-Interact ([2510.05318](https://arxiv.org/abs/2510.05318)): the cost of the `ask` action and ambiguous questions (step 3).
-- PlanPool ([2610.02739](https://arxiv.org/abs/2610.02739)): agents giving up on clarification questions too early (steps 3, 8).
 
 **Harness**
 - HarnessSQL ([2610.12274](https://arxiv.org/abs/2610.12274)): training the agent inside the harness it will be used in; the tool set; the choice of teacher (Qwen3.6-27B).
@@ -252,8 +209,7 @@ Only the works that directly shaped this design. The full survey is in [RESEARCH
 - MAC-SQL ([2312.11242](https://arxiv.org/abs/2312.11242)): an LLM selecting the tables the question needs when the schema is long (step 1).
 
 **Handoff**
-- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) and OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): the teacher continuing where the agent left off (step 10); on-policy distillation.
+- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) and OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): the teacher continuing where the agent left off (step 8); on-policy distillation.
 
 **Evaluation**
 - BIRD ([2305.03111](https://arxiv.org/abs/2305.03111)): the main benchmark, evidence and the official result comparison rule.
-- BIRD-Interact ([2510.05318](https://arxiv.org/abs/2510.05318)): Mini-Interact.

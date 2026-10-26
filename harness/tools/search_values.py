@@ -20,16 +20,13 @@ def run(query, context):
     1. find_values: query'yi veritabanındaki bütün metin değerleri arasında arar; içinde geçen ya da yazılışı
        benzeyen en fazla 5 değeri (tablo, sütun, değer) bulur.
     2. show_values: bulunanları agent'ın okuyacağı metne çevirir.
-    3. Bir şey bulunduysa metnin bir kopyası context.search_notes'a eklenir; candidate'ler (adım 7) agent'ın konuşmasını
-       görmediği için bulunan değeri buradan öğrenir.
-    4. Hiçbir değer bulunmadıysa ve aranan bir sütun adına benziyorsa o sütunlar söylenir: küçük modeller sütun
+    3. Hiçbir değer bulunmadıysa ve aranan bir sütun adına benziyorsa o sütunlar söylenir: küçük modeller sütun
        adlarını da bu tool'la arar.
     Return: agent'a gidecek metin, ör. "Values similar to 'super strength':\n- superpower.power_name = 'Super Strength'"
     ya da "No values similar to '...' were found."."""
     matches = find_values(context.db_path, query)
     text = show_values(query, matches)
     if matches:
-        context.search_notes.append(text)
         return text
     columns = similar_columns(context.db_path, query)
     if columns:

@@ -54,7 +54,7 @@ Turkish original: [../ARASTIRMA.md](../ARASTIRMA.md)
 
 | Benchmark | What it measures | Best | For us |
 |---|---|---|---|
-| **BIRD-Interact / Mini-Interact** (SQLite, 300 tasks) | Ambiguity, user simulator, bird-coin budget. Costs: `execute`=1, `ask`=2, `submit`=3; budget B = 6 + 2·m_amb + 2·λ | Full set, a-Interact: ~30.9 (Reward*) | **Where the value of the world model can be measured** |
+| **BIRD-Interact / Mini-Interact** (SQLite, 300 tasks) | Ambiguity, user simulator, bird-coin budget. Costs: `execute`=1, `ask`=2, `submit`=3; budget B = 6 + 2·m_amb + 2·λ | Full set, a-Interact: ~30.9 (Reward*) | Where the cost of unnecessary executions and of asking can be measured |
 | BIRD-CRITIC-SQLite (500) | SQL debugging | 63.4; open 7B models ~44 | Repair and handoff loop |
 | LiveSQLBench Base-Lite-SQLite | Uncontaminated, knowledge-intensive questions | 72.2 | SELECT subset |
 | Spider 2.0-Lite (SQLite slice, 135) | Large schemas, out-of-distribution | 76.2 (all) | Generalization test |
@@ -85,7 +85,7 @@ Turkish original: [../ARASTIRMA.md](../ARASTIRMA.md)
 
 | Work | Date | What it predicts | How it is used | Result | Lesson for us |
 |---|---|---|---|---|---|
-| [ANTE 2610.15368](https://arxiv.org/abs/2610.15368) | Oct | Before each tool call the policy writes an agent forecast (test result, exit code) and a "trust / abstain" decision | Trust reward γ = αq*/(1−q*): saying "trust" pays off only when accuracy exceeds the target q* | SWE-bench V 25.0→57.2 (+6.2 over the same RL without beliefs) | **The closest template for the agent forecast (step 4 in the flow) and the forecast reward** |
+| [ANTE 2610.15368](https://arxiv.org/abs/2610.15368) | Oct | Before each tool call the policy writes an agent forecast (test result, exit code) and a "trust / abstain" decision | Trust reward γ = αq*/(1−q*): saying "trust" pays off only when accuracy exceeds the target q* | SWE-bench V 25.0→57.2 (+6.2 over the same RL without beliefs) | The closest template for an agent that predicts its own result and decides whether to trust it |
 | [ECHO 2605.24517](https://arxiv.org/abs/2605.24517) | May | Environment tokens | Auxiliary loss added to GRPO: cross-entropy on environment tokens | About 2× GRPO on Terminal-Bench | Dense signal requiring no extra rollouts |
 | [DSWorld 2607.15901](https://arxiv.org/abs/2607.15901) | Jul | Data science state transitions (8B) | MLP router: cheap steps go to real execution, expensive ones to the simulator | 3–6× speedup in search; calibration not reported | Rule-based state construction. Cost-aware routing |
 | [EnvSimBench 2605.07247](https://arxiv.org/abs/2605.07247) | May | Tool feedback + state changes | 4B simulator | Accuracy falls off a cliff as the number of state changes grows (≤4% at 5+ changes) | Balance training data by result class. Reasoning traces hurt here |
@@ -116,7 +116,7 @@ Turkish original: [../ARASTIRMA.md](../ARASTIRMA.md)
 | [LLM-as-Judge audit 2609.30290](https://arxiv.org/abs/2609.30290) | Sep | Qwen3.6-27B judge ≈ Opus level (κ 0.72). Averaging a weak and a strong judge gives worse results | Combine judges with a combiner model (stacking) or unanimity, not by averaging |
 | [Small LMs know? 2609.20824](https://arxiv.org/abs/2609.20824) | | In a small model, token entropy carries no information in 91% of cases | Use sampling- or execution-based uncertainty |
 | [Predict own failure 2610.18614](https://arxiv.org/abs/2610.18614) | Oct | Verbal confidence rewarded by outcome within GRPO: AUROC 0.68–0.85, ECE <0.12 | Add a calibration reward to RL |
-| [PlanPool 2610.02739](https://arxiv.org/abs/2610.02739) | Oct | Agents give up on clarification questions too early | `ask_user` tool; when candidates diverge (medium), the agent is steered toward asking |
+| [PlanPool 2610.02739](https://arxiv.org/abs/2610.02739) | Oct | Agents give up on clarification questions too early | On an ambiguous question, asking is needed instead of guessing |
 | [Crystallization 2608.07213](https://arxiv.org/abs/2608.07213) / [MIRA 2608.06950](https://arxiv.org/abs/2608.06950) | Aug | Storing verified repairs gives +4.34 (MIRA: +16.5) | Database-specific repair memory |
 
 ## 6. Distillation, handoff and self-improving agents
@@ -197,7 +197,6 @@ The values below are taken from the corresponding papers. They are starting poin
   - Read-only query: SELECT/WITH only, returns at most ~100 rows.
   - Column profiler.
   - Value search with BM25 / FTS5.
-  - Clarification question to the user (`ask_user`); in BIRD-Interact `ask` costs 2 bird-coins.
 - Turn limit 5–10. In SERL-SQL 10 turns are slightly worse than 5; in TRUST-SQL 12 turns are unstable.
 - Context 32K. In HarnessSQL, going from 8K to 32K raises accuracy from 27.4 to 45.2.
 - Guardrails (DualSQL):
@@ -212,7 +211,7 @@ The values below are taken from the corresponding papers. They are starting poin
    - Data: verified teacher traces collected inside the harness. Failed tool calls within successful traces are not deleted.
    - The loss is computed over the full trajectory, with observations masked.
    - 3 epochs, lr 1e-5 (cosine), effective batch 16.
-   - **Chosen teacher: Qwen3.6-27B, 4-bit** (~16–17 GB; fits in 48 GB together with the policy and the world model). Rationale: in HarnessSQL this teacher gives 23.0 versus 7.4 with Qwen3.5-9B; DeepEye-SQL reaches 78.42 on BIRD test with it; as a judge it is at Opus level (κ 0.72). Its success in our harness is measured before use.
+   - **Chosen teacher: Qwen3.6-27B, 4-bit** (~16–17 GB; fits in 48 GB together with the policy). Rationale: in HarnessSQL this teacher gives 23.0 versus 7.4 with Qwen3.5-9B; DeepEye-SQL reaches 78.42 on BIRD test with it; as a judge it is at Opus level (κ 0.72). Its success in our harness is measured before use.
 2. **On-policy distillation** (Guided-OPD, TCOD):
    - Teacher intervention decays to zero on a cosine schedule.
    - Reverse KL on student turns, forward KL on teacher turns.
@@ -225,43 +224,12 @@ The values below are taken from the corresponding papers. They are starting poin
    - 8–16 rollouts per group, zero-variance groups are filtered.
    - KL off or decaying to zero (ReToolSQL: 0.005 → 0.001 → 0).
    - **Main reward:** binary execution accuracy with REX (robust result matching), plus a small format term. Auxiliary terms (schema, turn) are given only if the answer is correct (TRUST-SQL).
-   - **Forecast reward** (ANTE): a correct forecast marked "trust" gets +α, a wrong forecast marked "trust" gets −γ, "unsure" gets −κ. γ = α·q\*/(1−q\*); so saying "trust" pays off only when accuracy exceeds q\*. Initial values: q\* = 0.8, α = 0.1, γ = 0.4, κ = 0.02.
    - **Optional calibration reward:** verbal confidence is rewarded according to the outcome (2610.18614).
    - The teacher steps in only in groups where all attempts failed, and withdraws over time (GATS, RSTG).
-
-**World model training**
-- Input: schema, column profiles, sample values and the SQL.
-- Output: a structured target. Result type (error / empty / non-empty); result shape (columns and row-count range); values (only for small results).
-- Data is balanced by result type and complexity: error / empty / simple / complex (EnvSimBench).
-- Plain SFT is used, without reasoning traces (they hurt in EnvSimBench). RL is optional; its contribution in DSWorld is ~1%.
-- The confidence score comes from token probabilities and is corrected with temperature scaling.
-- Prediction gate: trusted if confidence ≥ 0.9 for result type and result shape; the values prediction is not used for decisions. The threshold is checked on a held-out set of databases unseen in training: at least 95% of predictions deemed trusted must be correct, otherwise the threshold is raised. The world model is not used until this check is done.
-- A random 5% of predictions found trusted are still executed.
-- Future work: separate conformal thresholds by level and query type (Role-Stratified CRC).
-- As the policy changes, the world model is retrained on the policy's new executions (CoMAP).
-- To be measured:
-  - The rate of predictions deemed trusted that turn out wrong.
-  - The number of executions saved at fixed accuracy.
-  - The effect on end-to-end accuracy.
-
-**Candidate selection and gates**
-- The agent's SQL also counts as a candidate. The other candidates are written by the same model in a single pass. The harness builds the prompt: question + evidence + clarifications + schema and column profiles + the search notes from step 3. The agent's SQL queries and execution results are not put into the prompt. Temperature ~0.8. Adaptive rule: start with 2 extra candidates; stop if all 3 give the same result, otherwise go up to 8 in total. In the literature the gain from going from 8 to 16 is small (SIRIUS-SQL). For early stopping: Knowing When to Stop (a learned stopping rule makes 35% fewer calls) and ZAS-SQL (stop once a cluster exceeds a threshold).
-- Candidates are grouped by their results. In a tie, the group containing the agent's SQL is chosen. In the first version there is no separate verifier model.
-- The confidence gate looks only at consensus (the number of candidates in the largest group):
-  - High: 3/3, or at least 6 of 8 candidates.
-  - Medium: 4–5 of 8 candidates. A summary of the two largest groups (medium note) is returned to the agent, and the agent runs at most one more time; if it comes out medium a second time, handoff.
-  - Low: at most 3 of 8 candidates; handoff.
-- The ratio is always computed out of 8; a candidate that is eliminated or errors is not counted in any group.
-- Other constants: in the "`config.py` constants" table in [CODE_STRUCTURE.md](CODE_STRUCTURE.md). All are starting values; they are tuned by measurement in Phase 2.
-- Possible future additions: a verifier with a small reward model (GradeSQL); a confidence score combining execution status and structural flags via logistic regression; leave-DB-out calibration; Learn-Then-Test or conformal thresholds.
-- To avoid:
-  - Using the small policy model's token entropy as a correctness signal.
-  - Untrained verbal self-confidence. The agent's "trust" decision is not in this category, because it is trained with the forecast reward in RL.
-  - Averaging a weak and a strong judge.
 
 **Handoff and offline loop**
 - The teacher continues from where the agent left off, with a new budget (OLIVE). Only continuations verified by execution enter training, and the loss is applied to the steps where the error occurred (OVCSD, HINT-SD).
 - Each round is mixed with previous data. Regularization toward the frozen previous policy (ReSAIL). The RL component is kept (Denser ≠ Better).
 - The new policy passes a promotion gate with at least 3 seeds and holdout tests (BCIT, Below the Noise Floor).
 - Raw inputs are stored. When the base model is upgraded, the teacher can relabel them (UpgradeBench).
-- Experience log schema: query, split, state, action, agent forecast, world model prediction, real result, cost, output, engine/dialect (Agentic Routing Flywheel). Only the train split enters training.
+- Experience log schema (after Agentic Routing Flywheel): the question, split, the whole conversation (every tool call and observation), the answer, the label, whether it is correct, the handoff reason, the model names. Only the train split enters training.

@@ -52,7 +52,7 @@
 
 | Benchmark | Neyi ölçer | En iyi | Bizim için |
 |---|---|---|---|
-| **BIRD-Interact / Mini-Interact** (SQLite, 300 görev) | Belirsizlik, kullanıcı simülatörü, bird-coin budget'ı. Maliyetler: `execute`=1, `ask`=2, `submit`=3; budget B = 6 + 2·m_amb + 2·λ | Tam set, a-Interact: ~30.9 (Reward*) | **World model'in değerinin ölçülebildiği yer** |
+| **BIRD-Interact / Mini-Interact** (SQLite, 300 görev) | Belirsizlik, kullanıcı simülatörü, bird-coin budget'ı. Maliyetler: `execute`=1, `ask`=2, `submit`=3; budget B = 6 + 2·m_amb + 2·λ | Tam set, a-Interact: ~30.9 (Reward*) | Gereksiz çalıştırmanın ve soru sormanın maliyetinin ölçülebildiği yer |
 | BIRD-CRITIC-SQLite (500) | SQL hata ayıklama | 63.4; açık 7B modeller ~44 | Onarım ve handoff döngüsü |
 | LiveSQLBench Base-Lite-SQLite | Kirlenmemiş, bilgi gerektiren sorular | 72.2 | SELECT alt kümesi |
 | Spider 2.0-Lite (SQLite dilimi, 135) | Büyük şemalar, dağılım dışı | 76.2 (tümü) | Genelleme testi |
@@ -83,7 +83,7 @@
 
 | Çalışma | Tarih | Ne tahmin ediyor | Nasıl kullanılıyor | Sonuç | Bizim için ders |
 |---|---|---|---|---|---|
-| [ANTE 2610.15368](https://arxiv.org/abs/2610.15368) | Eki | Her tool call'dan önce policy bir agent forecast (test sonucu, çıkış kodu) ve "trust / abstain" kararı yazıyor | Trust reward'u γ = αq*/(1−q*): "trust" demek ancak doğruluk q* hedefini aşınca kazandırıyor | SWE-bench V 25.0→57.2 (inanç olmadan aynı RL'e göre +6.2) | **Agent forecast (akışta adım 4) ve forecast reward için en yakın şablon** |
+| [ANTE 2610.15368](https://arxiv.org/abs/2610.15368) | Eki | Her tool call'dan önce policy bir agent forecast (test sonucu, çıkış kodu) ve "trust / abstain" kararı yazıyor | Trust reward'u γ = αq*/(1−q*): "trust" demek ancak doğruluk q* hedefini aşınca kazandırıyor | SWE-bench V 25.0→57.2 (inanç olmadan aynı RL'e göre +6.2) | Agent'ın kendi sonucunu tahmin edip güvenip güvenmeyeceğine karar vermesi için en yakın şablon |
 | [ECHO 2605.24517](https://arxiv.org/abs/2605.24517) | May | Ortam token'ları | GRPO'ya ek kayıp: ortam token'ları üzerinde çapraz entropi | Terminal-Bench'te GRPO'nun yaklaşık 2 katı | Ek rollout gerektirmeyen yoğun sinyal |
 | [DSWorld 2607.15901](https://arxiv.org/abs/2607.15901) | Tem | Veri bilimi durum geçişleri (8B) | MLP yönlendirici: ucuz adımlar gerçek çalıştırmaya, pahalılar simülatöre | Aramada 3–6 kat hız; calibration raporlanmamış | Kurallarla durum inşası. Maliyet bilincine dayalı yönlendirme |
 | [EnvSimBench 2605.07247](https://arxiv.org/abs/2605.07247) | May | Tool geri bildirimi + durum değişiklikleri | 4B simülatör | Durum değişikliği sayısı arttıkça doğruluk uçuruma düşüyor (5+ değişiklikte ≤%4) | Eğitim verisini sonuç sınıfına göre dengele. Akıl yürütme izleri burada zarar veriyor |
@@ -114,7 +114,7 @@
 | [LLM-as-Judge audit 2609.30290](https://arxiv.org/abs/2609.30290) | Eyl | Qwen3.6-27B judge ≈ Opus düzeyinde (κ 0.72). Zayıf ve güçlü judge'ın ortalaması daha kötü sonuç veriyor | Judge'ları ortalama ile değil, birleştirici model (stacking) ya da oybirliği ile birleştir |
 | [Small LMs know? 2609.20824](https://arxiv.org/abs/2609.20824) | | Küçük modelde token entropisi durumların %91'inde bilgi taşımıyor | Örneklemeye ya da çalıştırmaya dayalı belirsizlik kullan |
 | [Predict own failure 2610.18614](https://arxiv.org/abs/2610.18614) | Eki | GRPO içinde sonuca göre ödüllendirilen sözel güven: AUROC 0.68–0.85, ECE <0.12 | RL'e calibration reward ekle |
-| [PlanPool 2610.02739](https://arxiv.org/abs/2610.02739) | Eki | Agent'lar netleştirme sorusunu çok erken bırakıyor | `ask_user` tool'u; candidate'ler ayrışınca (medium) agent sormaya yönlendirilir |
+| [PlanPool 2610.02739](https://arxiv.org/abs/2610.02739) | Eki | Agent'lar netleştirme sorusunu çok erken bırakıyor | Belirsiz soruda tahmin etmek yerine sormak gerekir |
 | [Crystallization 2608.07213](https://arxiv.org/abs/2608.07213) / [MIRA 2608.06950](https://arxiv.org/abs/2608.06950) | Ağu | Doğrulanmış onarımları saklamak +4.34 (MIRA: +16.5) | Veritabanına özgü repair memory |
 
 ## 6. Distillation, handoff ve kendini geliştiren agent'lar
@@ -195,7 +195,6 @@ Aşağıdaki değerler ilgili makalelerden alındı. Başlangıç noktasıdır, 
   - Salt okunur sorgu: yalnızca SELECT/WITH, en fazla ~100 satır döner.
   - Column profiler.
   - BM25 / FTS5 ile değer arama.
-  - Kullanıcıya netleştirme sorusu (`ask_user`); BIRD-Interact'te `ask` 2 bird-coin.
 - Tur sınırı 5–10. SERL-SQL'de 10 tur 5 turdan biraz kötü; TRUST-SQL'de 12 tur kararsız.
 - Bağlam 32K. HarnessSQL'de 8K'dan 32K'ya çıkmak doğruluğu 27.4'ten 45.2'ye taşıyor.
 - Guardrail'ler (DualSQL):
@@ -210,7 +209,7 @@ Aşağıdaki değerler ilgili makalelerden alındı. Başlangıç noktasıdır, 
    - Veri: harness içinde toplanmış, doğrulanmış teacher izleri. Başarılı izlerin içindeki başarısız tool call'lar silinmez.
    - Kayıp yolun tamamı üzerinde hesaplanır, observation'lar maskelenir.
    - 3 epoch, lr 1e-5 (cosine), etkin batch 16.
-   - **Seçilen teacher: Qwen3.6-27B, 4-bit** (~16–17 GB; 48 GB'a policy ve world model ile birlikte sığar). Gerekçe: HarnessSQL'de bu teacher'la 23.0, Qwen3.5-9B ile 7.4; DeepEye-SQL bununla BIRD test 78.42; judge olarak Opus düzeyinde (κ 0.72). Kullanmadan önce bizim harness'ımızdaki başarısı ölçülür.
+   - **Seçilen teacher: Qwen3.6-27B, 4-bit** (~16–17 GB; 48 GB'a policy ile birlikte sığar). Gerekçe: HarnessSQL'de bu teacher'la 23.0, Qwen3.5-9B ile 7.4; DeepEye-SQL bununla BIRD test 78.42; judge olarak Opus düzeyinde (κ 0.72). Kullanmadan önce bizim harness'ımızdaki başarısı ölçülür.
 2. **On-policy distillation** (Guided-OPD, TCOD):
    - Teacher müdahalesi kosinüsle sıfıra iner.
    - Student turlarında ters KL, teacher turlarında ileri KL.
@@ -223,43 +222,12 @@ Aşağıdaki değerler ilgili makalelerden alındı. Başlangıç noktasıdır, 
    - Grup başına 8–16 rollout, sıfır varyanslı gruplar filtrelenir.
    - KL kapalı ya da azalarak sıfıra iner (ReToolSQL: 0.005 → 0.001 → 0).
    - **Ana reward:** REX (sağlam sonuç eşleşmesi) ile ikili çalıştırma doğruluğu, artı küçük bir format terimi. Yardımcı terimler (şema, tur) yalnızca cevap doğruysa verilir (TRUST-SQL).
-   - **Forecast reward** (ANTE): doğru ve "trust" denmiş forecast +α, yanlış ve "trust" denmiş forecast −γ, "unsure" −κ. γ = α·q\*/(1−q\*); böylece "trust" demek ancak doğruluk q\*'ı aşınca kazandırır. Başlangıç değerleri: q\* = 0.8, α = 0.1, γ = 0.4, κ = 0.02.
    - **İsteğe bağlı calibration reward:** sözel güven, sonuca göre ödüllendirilir (2610.18614).
    - Teacher yalnızca tüm denemeleri başarısız olan gruplarda devreye girer ve zamanla geri çekilir (GATS, RSTG).
-
-**World model eğitimi**
-- Girdi: şema, column profile'ları, örnek değerler ve SQL.
-- Çıktı: yapılandırılmış hedef. Result type (hata / boş / dolu); result shape (sütunlar ve satır sayısı aralığı); values (yalnızca küçük sonuçlarda).
-- Veri, result type'a ve karmaşıklığa göre dengelenir: hata / boş / basit / karmaşık (EnvSimBench).
-- Düz SFT kullanılır, akıl yürütme izi kullanılmaz (EnvSimBench'te zarar veriyor). RL isteğe bağlı; DSWorld'de katkısı ~%1.
-- Confidence score token olasılıklarından çıkar ve temperature scaling ile düzeltilir.
-- Prediction gate: result type ve result shape için confidence ≥ 0.9 ise trusted; values prediction'ı karar için kullanılmaz. Eşik, eğitimde görülmemiş veritabanlarından ayrılmış bir sette kontrol edilir: trusted denen prediction'ların en az %95'i doğru olmalı, değilse eşik yükseltilir. Bu kontrol yapılana kadar world model kullanılmaz.
-- Trusted bulunan prediction'ların rastgele %5'i yine de çalıştırılır.
-- İleride: düzey ve sorgu tipine göre ayrı conformal eşikler (Role-Stratified CRC).
-- Policy değiştikçe, policy'nin yeni çalıştırmalarıyla yeniden eğitilir (CoMAP).
-- Ölçülecekler:
-  - Trusted denen prediction'lardan yanlış çıkanların oranı.
-  - Sabit doğrulukta kazanılan çalıştırma sayısı.
-  - Uçtan uca doğruluğa etkisi.
-
-**Candidate seçimi ve gate'ler**
-- Agent'ın SQL'i de candidate sayılır. Diğer candidate'leri aynı model tek seferde yazar. Prompt'u harness kurar: soru + evidence + clarification'lar + şema ve column profile'ları + adım 3'teki search notes. Agent'ın SQL'leri ve çalıştırma sonuçları prompt'a konmaz. Temperature ~0.8. Adaptive rule: 2 ek candidate'le başlanır, 3'ü de aynı sonucu verirse durulur, yoksa toplam 8'e çıkılır. Literatürde 8'den 16'ya çıkmanın kazancı küçük (SIRIUS-SQL). Erken durma için: Knowing When to Stop (öğrenilmiş durma kuralı %35 daha az çağrı yapıyor) ve ZAS-SQL (bir küme eşiği aşınca durma).
-- Candidate'ler sonuçlarına göre gruplanır. Başa baş durumda agent'ın SQL'inin bulunduğu grup seçilir. İlk sürümde ayrı bir verifier model yok.
-- Confidence gate yalnızca consensus'a bakar (en kalabalık gruptaki candidate sayısı):
-  - High: 3/3, ya da 8 candidate'ten en az 6'sı.
-  - Medium: 8 candidate'ten 4–5'i. Agent'a en kalabalık iki grubun özeti (medium note) döner ve agent en fazla bir kez daha çalışır; ikinci kez de medium çıkarsa handoff.
-  - Low: 8 candidate'ten en fazla 3'ü; handoff.
-- Oran hep 8 üzerinden hesaplanır; elenen ya da hata veren candidate hiçbir gruba sayılmaz.
-- Diğer sabitler: [KOD_YAPISI.md](KOD_YAPISI.md) "`config.py` sabitleri" tablosunda. Hepsi başlangıç değeridir; Phase 2'de ölçülerek ayarlanır.
-- İleride eklenebilecekler: küçük bir reward model (GradeSQL) ile verifier; çalıştırma durumu ve yapısal flag'leri lojistik regresyonla birleştiren bir confidence score; leave-DB-out calibration; Learn-Then-Test ya da conformal eşikler.
-- Kaçınılacaklar:
-  - Küçük policy modelinin token entropisini doğruluk sinyali olarak kullanmak.
-  - Eğitilmemiş sözel öz güven. Agent'ın "trust" kararı bu kapsamda değil, çünkü RL'de forecast reward ile eğitiliyor.
-  - Zayıf ve güçlü judge'ın ortalaması.
 
 **Handoff ve offline döngü**
 - Teacher, agent'ın kaldığı yerden yeni bir budget'la devam eder (OLIVE). Yalnızca çalıştırmayla doğrulanan devamlar eğitime girer, kayıp hatanın olduğu adımlara uygulanır (OVCSD, HINT-SD).
 - Her turda önceki verilerle karıştırılır. Dondurulmuş önceki policy'ye doğru düzenlileştirilir (ReSAIL). RL bileşeni korunur (Denser ≠ Better).
 - Yeni policy, en az 3 seed'le ve tutma testleriyle promotion gate'ten geçer (BCIT, Below the Noise Floor).
 - Ham girdiler saklanır. Temel model yükseltildiğinde teacher yeniden etiketleyebilir (UpgradeBench).
-- Experience log şeması: sorgu, split, durum, eylem, agent forecast, world model prediction, gerçek sonuç, maliyet, çıktı, motor/dialect (Agentic Routing Flywheel). Eğitime yalnızca train split'i girer.
+- Experience log şeması (Agentic Routing Flywheel'den): soru, split, konuşmanın tamamı (her tool call ve observation), cevap, label, doğru mu, handoff nedeni, model adları. Eğitime yalnızca train split'i girer.

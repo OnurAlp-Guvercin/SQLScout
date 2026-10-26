@@ -1,5 +1,5 @@
 """Adım 4–6: execute_sql tool'u. SQL önce ucuz kontrollerden geçer (pre-check), sonra çalıştırılır (ya da cache'ten gelir) ve
-sonuç agent'ın okuyacağı metne çevrilir. Candidate'ler ve final check de SQL'i run_sql ile çalıştırır."""
+sonuç agent'ın okuyacağı metne çevrilir. Final check de SQL'i run_sql ile çalıştırır."""
 
 import re
 
@@ -11,11 +11,10 @@ EMPTY_HINT = "If the query filters on a text value, check how that value is writ
 
 
 def run(sql, context):
-    """Agent execute_sql(sql) çağırınca run_steps bunu çağırır (adım 4–6).
+    """Agent execute_sql(sql) çağırınca (ya da SQL'i ```sql bloğunda yazınca) run_steps bunu çağırır (adım 4–6).
     1. check (pre-check, adım 5): sorgu salt okuma mı, EXPLAIN geçiyor mu? Geçmiyorsa sorgu çalıştırılmaz, not
        return edilir.
     2. run_sql (adım 6): sorgu çalıştırılır; aynı SQL bu soruda daha önce çalıştıysa sonuç cache'ten gelir.
-       SQL context.ran_by_agent'a eklenir: final check boş bir cevabı ancak agent onu görmüşse kabul eder.
     3. format_result: sonuç metne çevrilir (en fazla 20 satır; boşsa search_values hatırlatması).
     4. Hatasız ve dolu sonuç context.last_ok_sql olur (fallback için).
     Return: agent'a gidecek metin, ör. "Columns: superhero_name\n358 rows (first 20 shown):\n..." ya da pre-check notu."""
@@ -23,7 +22,6 @@ def run(sql, context):
     if note:
         return note
     result = run_sql(sql, context)  # adım 6
-    context.ran_by_agent.add(sql_key(sql))
     text = format_result(result)
     if result["ok"] and result["row_count"] > 0:
         context.last_ok_sql = sql

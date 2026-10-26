@@ -1,6 +1,6 @@
 """Modele request atar ve cevabı return eder. İstekler yerel mlx_lm.server'a ya da OpenRouter API'sine gider;
 ikisi de aynı (OpenAI) biçimi konuşur, adres config.py'de.
-Policy, candidate'ler ve teacher hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
+Policy, teacher ve base (baseline.py) hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
 
 import functools
 import http.client

@@ -8,8 +8,7 @@ import config
 
 def new_stats():
     """Yalnızca sonuç dosyasına yazılan sayaçlar; hiçbir kararı etkilemezler."""
-    return {"executions": 0,  # gerçek çalıştırma sayısı (candidate'ler dahil)
-            "candidates": 0,
+    return {"executions": 0,  # gerçek çalıştırma sayısı
             "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
 
 
@@ -30,14 +29,10 @@ class Context:
     calls: int = 0  # soru boyunca toplam tool call (agent + teacher); sonuç dosyasına yazılır
     calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden (yarım) dolar
     cache: dict = field(default_factory=dict)  # execute_sql.sql_key(sql) → gerçek sonuç (adım 5)
-    ran_by_agent: set = field(default_factory=set)  # agent'ın execute_sql ile çalıştırıp sonucunu gördüğü SQL'ler
-    search_notes: list = field(default_factory=list)  # search sonuçlarının candidate prompt'u için kopyası
-    clarifications: list = field(default_factory=list)  # ask_user soruları ve kullanıcının cevapları
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
-    medium_notes: int = 0  # ikinci medium'da handoff
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
-    selected_sql: str = None  # en son seçilen cevap (adım 7'nin seçtiği SQL)
-    last_ok_sql: str = None  # en son hatasız çalışan SQL; fallback answer'da kullanılır
+    last_run_sql: str = None  # agent'ın en son yazdığı SQL; submit bunu cevap olarak gönderir
+    last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; fallback answer'da kullanılır
     handoff_reason: str = None
 
     # Ölçüm sayaçları (new_stats)
@@ -69,4 +64,4 @@ class Context:
         """Sorunun sonucu: cevap, label ve sonuç dosyasına yazılacak her şey."""
         return {"sql": sql, "label": label, "answered_by": answered_by, "tool_calls": self.calls, **self.stats,
                 "cost": round(self.stats["cost"], 6),
-                "clarifications": self.clarifications, "handoff_reason": self.handoff_reason, "steps": self.steps}
+                "handoff_reason": self.handoff_reason, "steps": self.steps}

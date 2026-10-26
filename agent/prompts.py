@@ -11,7 +11,7 @@ not as the question writes them.
 - Follow the evidence: it explains how words in the question map to the database.
 - Select only what the question asks for, in the order it asks."""
 
-# Tool'suz tek SQL: adım 7'de candidate'ler bununla yazılır.
+# Base: tool'suz tek SQL (baseline.py). Agentic sistem bununla karşılaştırılır.
 WRITE_SQL = f"""You are an expert SQLite analyst. You are given a database schema with column descriptions \
 and value samples, sometimes evidence, and a question. Write one SQLite query that answers the question.
 
@@ -22,10 +22,16 @@ Return only the SQL query inside a ```sql code block, with no explanation."""
 # Agent loop (adım 2). Agent her turda tek bir tool çağırır.
 AGENT = f"""You are an expert SQLite analyst working as an agent. You are given a database schema with column \
 descriptions and value samples, sometimes evidence, and a question. You act only by calling tools: call exactly \
-one tool in each turn. The value samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not \
-among them or in the evidence, call `search_values` before you use it, to find its exact spelling and its column. \
-Use `execute_sql` to run a query and see its real result. Check that the result answers the question; if it shows \
-an error, no rows or something unexpected, fix the query and try again. When you know the SQL query that answers the question, call `submit` with it.
+one tool in each turn.
+
+Work in this order:
+1. Write the one SQLite query that answers the question and run it with `execute_sql`. The schema above already \
+lists every table and column: do not query sqlite_master and do not run exploratory queries first.
+2. Look at its real result. If it shows an error, no rows or something unexpected, run a fixed query. The value \
+samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not among them or in the evidence, \
+call `search_values` to find its exact spelling and its column.
+3. When the result of the last query you ran answers the question, call `submit`. Do not change a query whose \
+result already answers the question.
 
 {SQL_RULES}"""
 
@@ -34,27 +40,19 @@ SELECT_TABLES = """You are an expert SQLite analyst. You are given part of a dat
 the tables needed to write the SQL query that answers the question, including tables needed only to join others. \
 Return only a JSON list of table names, like ["orders", "customers"], or [] if no table here is needed."""
 
-# Handoff (adım 10): teacher, agent'ın konuşmasını bu notla devralır.
+# Handoff (adım 8): teacher, agent'ın konuşmasını bu notla devralır.
 TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over to you. Reason: {reason}.
 Everything it tried is above. Continue from here: you have a new budget of {budget} tool calls. \
-When you know the SQL query that answers the question, call `submit` with it."""
+When the result of the last query you ran answers the question, call `submit`."""
 
-# Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
+# Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur. Agent SQL'i mesajında ```sql bloğu
+# olarak yazarsa o da execute_sql sayılır (harness/guards.py read_tool_call).
 SEARCH_VALUES = {"type": "function", "function": {
     "name": "search_values",
     "description": "Find database values that contain the given text or are spelled like it, with their table and "
                    "column, e.g. 'Los Angles' finds city = 'Los Angeles'.",
     "parameters": {"type": "object", "required": ["query"],
                    "properties": {"query": {"type": "string", "description": "The text to look for."}}},
-}}
-
-ASK_USER = {"type": "function", "function": {
-    "name": "ask_user",
-    "description": "Ask the user one short clarification question about what the question means. Use it only when "
-                   "the question is ambiguous and the schema, values and evidence cannot resolve it. Do not repeat the "
-                   "question and do not ask the user to check SQL: the user does not know SQL.",
-    "parameters": {"type": "object", "required": ["question"],
-                   "properties": {"question": {"type": "string", "description": "The clarification question."}}},
 }}
 
 EXECUTE_SQL = {"type": "function", "function": {
@@ -67,9 +65,8 @@ EXECUTE_SQL = {"type": "function", "function": {
 
 SUBMIT = {"type": "function", "function": {
     "name": "submit",
-    "description": "Submit the final SQLite query that answers the question. This ends the task.",
-    "parameters": {"type": "object", "required": ["sql"],
-                   "properties": {"sql": {"type": "string", "description": "The final SQLite query."}}},
+    "description": "Submit the last query you ran as the final answer. This ends the task.",
+    "parameters": {"type": "object", "required": [], "properties": {}},
 }}
 
-TOOLS = [SEARCH_VALUES, EXECUTE_SQL, SUBMIT, ASK_USER]
+TOOLS = [SEARCH_VALUES, EXECUTE_SQL, SUBMIT]

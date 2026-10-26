@@ -1,62 +1,24 @@
-"""harness/tools/submit.py testleri (adım 7–9): candidate yazımı, gruplama, seçim ve confidence gate. Model yerine sahte
-bir cevap kullanılır; API'ye istek gitmez."""
+"""harness/tools/submit.py testleri (adım 7): final check ve iki kez geçmeyince handoff."""
 
-from agent import llm, prompts
+from agent.context import Context
 from harness.tools import submit
 
 
-def result(key):
-    return {"ok": True, "result_key": key, "columns": ["n"], "rows": [(key,)], "row_count": 1}
+def test_final_check_accepts_a_query_that_runs_even_if_empty(db):
+    context = Context("q", "", db)
+    assert submit.run("SELECT COUNT(*) FROM items", context) == {"done": True, "note": None, "handoff": None}
+    assert submit.final_check("SELECT id FROM items WHERE city = 'Paris'", context) is None  # agent boş sonucu gördü
 
 
-def test_grouping_ties_and_errors():
-    sqls = ["agent", "b1", "c1", "b2", "c2", "broken"]
-    results = [result("a"), result("b"), result("c"), result("b"), result("c"), None]
-    groups = submit.group(sqls, results)
-    assert [group["sqls"] for group in groups] == [["b1", "b2"], ["c1", "c2"], ["agent"]]  # hata veren grupsuz
-    tie = submit.group(["agent", "b1"], [result("a"), result("b")])
-    assert tie[0]["sqls"] == ["agent"]  # başa başta agent'ın grubu
+def test_final_check_catches_missing_and_failing_queries(db):
+    context = Context("q", "", db)
+    assert submit.final_check(None, context).startswith("Final check failed: you have not run a query yet")
+    assert submit.final_check("SELECT town FROM items", context).startswith(
+        "Final check failed: Rejected before running: no such column: town")
 
 
-def test_confidence_levels():
-    def groups_of(size):
-        return [{"sqls": ["x"] * size}]
-    assert submit.confidence(groups_of(3), 3) == "high"
-    assert submit.confidence(groups_of(6), 8) == "high"
-    assert submit.confidence(groups_of(5), 8) == "medium"
-    assert submit.confidence(groups_of(4), 8) == "medium"
-    assert submit.confidence(groups_of(3), 8) == "low"
-    assert submit.confidence([], 8) == "low"  # hepsi hata verdi
-
-
-def test_extract_sql_from_sql_block():
-    text = "Here it is:\n```sql\nSELECT name\nFROM users;\n```\nDone."
-    assert submit.extract_sql(text) == "SELECT name\nFROM users;"
-
-
-def test_extract_sql_from_plain_block():
-    assert submit.extract_sql("```\nSELECT 1\n```") == "SELECT 1"
-
-
-def test_extract_sql_without_block():
-    assert submit.extract_sql("  SELECT 1  ") == "SELECT 1"
-
-
-def test_write_sql_sends_system_prompt_and_context(monkeypatch):
-    sent = {}
-
-    def fake_chat(messages, temperature=None, seed=None, model=None):
-        sent["messages"] = messages
-        sent["seed"] = seed
-        return {"text": "```sql\nSELECT 1\n```", "prompt_tokens": 10, "completion_tokens": 5}
-
-    monkeypatch.setattr(llm, "chat", fake_chat)
-    reply = submit.write_sql("Database schema ... Question: how many?", seed=3)
-    assert reply["sql"] == "SELECT 1"
-    assert sent["messages"][0] == {"role": "system", "content": prompts.WRITE_SQL}
-    assert sent["messages"][1] == {"role": "user", "content": "Database schema ... Question: how many?"}
-    assert sent["seed"] == 3
-
-
-def test_extract_sql_from_unclosed_block():
-    assert submit.extract_sql("```sql\nSELECT 1") == "SELECT 1"
+def test_second_failure_hands_over(db):
+    context = Context("q", "", db)
+    first = submit.run("SELECT town FROM items", context)
+    assert first["note"].startswith("Final check failed") and first["handoff"] is None
+    assert submit.run("SELECT town FROM items", context)["handoff"] == "final check 2 kez geçmedi"

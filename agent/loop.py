@@ -1,8 +1,8 @@
 """Agent loop: akışın kendisi. Agent her turda tek bir tool çağırır; harness onu çalıştırır ve sonucu agent'a geri
-verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/tools/): search_values ve ask_user
-(adım 3), execute_sql (adım 4–6), submit (adım 7–9).
-Agent takılırsa (budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci medium, final check 2 kez geçmedi)
-harness işi teacher'a verir (adım 10): teacher aynı döngüyle, yarım budget'la devam eder.
+verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/tools/): search_values (adım 3),
+execute_sql (adım 4–6), submit (adım 7; agent'ın en son çalıştırdığı SQL cevaptır).
+Agent takılırsa (ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi, budget bitti)
+harness işi teacher'a verir (adım 8): teacher aynı döngüyle, yarım budget'la devam eder.
 Soru bitince experience log yazılır."""
 
 import json
@@ -14,7 +14,7 @@ import config
 from agent import llm, prompts
 from agent.context import Context
 from harness import guards, prepare
-from harness.tools import ask_user, execute_sql, search_values, submit
+from harness.tools import execute_sql, search_values, submit
 
 log_lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır; log satırları birbirine karışmasın
 
@@ -28,7 +28,7 @@ def answer_question(question, evidence, db_path, seed=None, tags=None, score=Non
         {"role": "user", "content": prepare.build_context(question, evidence, db_path)},  # adım 1
     ]
     result = run_steps(context)
-    if result is None:  # adım 10: teacher kaldığı yerden devam eder
+    if result is None:  # adım 8: teacher kaldığı yerden devam eder
         start_teacher(context)
         result = run_steps(context)
     if result is None:
@@ -75,28 +75,31 @@ def run_steps(context):
             result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
             result = search_values.run(step["args"]["query"], context)  # adım 3
-        elif step["tool"] == "ask_user":
-            result = ask_user.run(step["args"]["question"], context)  # adım 3
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
-        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer
-            outcome = submit.run(step["args"]["sql"], context)  # adım 7–9
+        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer: en son çalıştırdığı SQL cevaptır
+            outcome = submit.run(context.last_run_sql, context)  # adım 7
             if outcome["done"]:
                 context.add(step, "Accepted.")
-                return context.answer(context.selected_sql, "ok", "teacher" if context.teacher else "agent")
+                return context.answer(context.last_run_sql, "ok", by)
             if outcome["handoff"]:
                 if not context.teacher:
                     context.handoff_reason = outcome["handoff"]
                 context.add(step, f"Handoff: {outcome['handoff']}")
                 return None
-            result = outcome["note"]  # medium note ya da final check notu → adım 2
+            result = outcome["note"]  # final check notu → adım 2
 
+        if step["tool"] == "execute_sql" and not step["error"]:
+            context.last_run_sql = step["args"]["sql"]  # tekrar olsa da: submit bunu gönderir
         context.add(step, result)
         context.stuck = bool(step["error"] or earlier)  # reddedildi ya da tekrarladı: sıradaki adım örneklenir
+        if not context.teacher and context.calls == config.PROGRESS_CALLS and context.last_ok_sql is None:
+            context.handoff_reason = "ilerleme yok"  # dolu sonuç veren hiçbir SQL yok: teacher erken devralır
+            return None
         if context.calls_left > 0:  # kalan budget yalnızca modele giden mesaja eklenir, adım kaydına değil
             note = f"\n[{context.calls_left} tool call(s) left."
             if context.calls_left <= config.BUDGET_WARNING:
-                note += " If a query you ran answers the question, call submit with it now."
+                note += " If the last query you ran answers the question, call submit now."
             context.messages[-1]["content"] += note + "]"
 
     if not context.teacher:
@@ -123,9 +126,8 @@ def start_teacher(context):
 
 
 def fallback_answer(context):
-    """Hiçbir cevap kabul edilmediyse: en son seçilen SQL, yoksa candidate'lerin consensus'u, o da yoksa en son
-    hatasız çalışan SQL (low_confidence); hiçbiri yoksa cevap yok (no_answer)."""
-    sql = context.selected_sql or submit.consensus_answer(context) or context.last_ok_sql
-    if sql is None:
+    """Hiçbir cevap kabul edilmediyse: agent'ın ya da teacher'ın en son hatasız ve dolu çalışan SQL'i (fallback);
+    yoksa cevap yok (no_answer)."""
+    if context.last_ok_sql is None:
         return context.answer(None, "no_answer")
-    return context.answer(sql, "low_confidence")
+    return context.answer(context.last_ok_sql, "fallback")

@@ -43,7 +43,7 @@ def test_second_statement_is_caught(db):
 def test_cache_returns_earlier_result_without_running(db):
     context = Context("How many items?", "", db)
     first = execute_sql.run("SELECT COUNT(*) FROM items", context)
-    second = execute_sql.run("SELECT COUNT(*)  FROM items", context)  # ör. bir candidate aynısını yazdı
+    second = execute_sql.run("SELECT COUNT(*)  FROM items", context)  # aynı SQL, farklı boşluk
     assert first == second
     assert context.stats["executions"] == 1
 

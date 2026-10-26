@@ -2,22 +2,27 @@
 reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/tools/execute_sql.py'de (trim_rows)."""
 
 import json
+import re
 import uuid
 
 import config
 from agent import llm
-from harness.tools import execute_sql, submit
+from harness.tools import execute_sql
 
 SHORTENED = "[Old result, shortened] "
 
 
 def read_tool_call(reply, tools):
-    """Modelin cevabını tek bir tool call olarak okur. Okunamazsa step["error"] dolu olur: istek reddedilir,
-    hata agent'a gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
+    """Modelin cevabını tek bir adım olarak okur: bir tool call, ya da tool call yoksa metindeki ```sql bloğu (execute_sql
+    adımı sayılır). Okunamazsa step["error"] dolu olur: istek reddedilir, hata agent'a gider ve budget yine düşer.
+    Birden çok tool call varsa yalnızca ilki alınır."""
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
-        step["error"] = ("Rejected: your reply was not a tool call. Do not work out the answer in text: call exactly "
-                         "one of the tools, e.g. execute_sql to compute it or submit when you have the query.")
+        sql = sql_block(reply["text"])
+        if sql:
+            step["tool"], step["args"] = "execute_sql", {"sql": sql}
+        else:
+            step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
         return step
 
     call = reply["tool_calls"][0]
@@ -54,24 +59,29 @@ def read_tool_call(reply, tools):
     return step
 
 
+def sql_block(text):
+    """Metindeki ilk ``` bloğunun içi (```sql ya da düz ```; kapanmamışsa metnin sonuna kadar); blok yoksa None."""
+    match = re.search(r"```(?:sql)?\s*(.*?)(?:```|$)", text, re.DOTALL | re.IGNORECASE)
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    return None
+
+
 def is_empty(value):
     """Argument metin değilse ya da boşsa (ör. {"sql": 123}) tool onu kullanamaz."""
     return not isinstance(value, str) or not value.strip()
 
 
 def earlier_calls(step, context):
-    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de ve
-    submit'te SQL'in boşlukları önemsenmez. Reddedilen çağrılar hiç tekrar sayılmaz. submit yalnızca önceki submit
-    çalışmadığı için geri döndüyse tekrar sayılır: medium note'tan sonra aynı SQL'i yeniden göndermek geçerlidir."""
-    if step.get("error"):
+    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
+    boşlukları önemsenmez. submit ve reddedilen çağrılar hiç tekrar sayılmaz (submit'i final check sınırlar)."""
+    if step.get("error") or step["tool"] == "submit":
         return []
     same = []
     for old in context.steps:
         if old["tool"] != step["tool"] or not old["args"]:
             continue
-        if step["tool"] == "submit" and not old["result"].startswith(submit.REJECTED):
-            continue
-        if step["tool"] in ("execute_sql", "submit"):
+        if step["tool"] == "execute_sql":
             match = execute_sql.sql_key(old["args"]["sql"]) == execute_sql.sql_key(step["args"]["sql"])
         else:
             match = old["args"] == step["args"]

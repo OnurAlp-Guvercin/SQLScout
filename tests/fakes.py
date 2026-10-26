@@ -13,19 +13,15 @@ def call_reply(tool, args):
 
 
 def execute_reply(sql):
-    return call_reply("execute_sql", {"sql": sql})
-
-
-def submit_reply(sql):
-    return call_reply("submit", {"sql": sql})
-
-
-def sql_reply(sql):
-    """Candidate'in cevabı: tool'suz, ```sql bloğunda tek SQL."""
+    """Agent bir SQL'i çalıştırmak için ```sql bloğunda yazar."""
     return text_reply(f"```sql\n{sql}\n```")
+
+
+def submit_reply():
+    return call_reply("submit", {})
 
 
 def observation(message):
     """Modele giden mesajın içeriği, harness'ın sona eklediği kalan budget notu olmadan."""
     text = message["content"]
-    return text.rsplit("\n[", 1)[0] if text.endswith(" left.]") or "tool call(s) left." in text[-120:] else text
+    return text.rsplit("\n[", 1)[0] if "tool call(s) left." in text[-120:] else text

@@ -18,7 +18,7 @@ def main():
     answer = loop.answer_question(args.question, args.evidence, args.db)
     show_steps(answer)
     print(f"\nLabel: {answer['label']} | cevabı bulan: {answer['answered_by']} | tool call: {answer['tool_calls']}"
-          f" | candidate: {answer['candidates']} | gerçek çalıştırma: {answer['executions']}"
+          f" | gerçek çalıştırma: {answer['executions']}"
           f" | {answer['prompt_tokens']} + {answer['completion_tokens']} token, ${answer['cost']:.4f}")
     if answer["handoff_reason"]:
         print(f"Handoff nedeni: {answer['handoff_reason']}")

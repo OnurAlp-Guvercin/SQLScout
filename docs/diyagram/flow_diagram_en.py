@@ -32,16 +32,16 @@ svg, divs = [], []
 
 def lane_headers():
     heads = [
-     ('policy','POLICY AGENT','Qwen3.5-4B',
+     ('policy','POLICY AGENT','Qwen3.5-0.8B · target Qwen3.5-4B',
       '<b>Now:</b> untrained. <b>Later:</b> inside the harness, with the experience log: SFT → on-policy distillation → RL',
-      '<b>Role:</b> decides which tool to call: searches values, tries SQL, looks at the result, asks if needed'),
+      '<b>Role:</b> decides which tool to call: searches values, tries SQL, looks at the result, fixes it'),
      ('harness','HARNESS (no LLM)','plain Python',
-      'Context preparation, search_values, ask_user, pre-check, turning the result into text, candidate selection, confidence gate, final check',
+      'Context preparation, search_values, pre-check, turning the result into text, final check, the handoff decision',
       '<b>Guardrails:</b> no repeated calls · long results trimmed · context compressed · submit reminder when the budget is low'),
      ('db','REAL DATABASE','SQLite, read-only',
       'Exposed as the <i>execute_sql</i> tool',
       '<b>Rule:</b> every submitted answer has really been executed'),
-     ('teacher','TEACHER LLM','Qwen3.6-27B (4-bit, ~16–17 GB)',
+     ('teacher','TEACHER LLM','Qwen3.5-9B (API) · target Qwen3.6-27B',
       'Used only after a handoff. Continues <b>where the agent left off</b>, with half the budget (5 tool calls) and the same tools',
       '<b>Role:</b> solves the case the agent could not; its solution becomes training data'),
     ]
@@ -98,21 +98,18 @@ node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
-<li>If the question is ambiguous, ask the user (<i>ask_user</i>)</li>
-<li>Try SQL, look at the real result, fix it</li>
-<li>Read the observation</li><li>Repeat until <i>submit</i></li></ul>
-<p>Budget: at most 10 tool calls</p></div>''')
+<li>First write and run the SQL that answers the question</li>
+<li>Look at the real result, fix it if needed</li>
+<li>If the result answers the question, <i>submit</i>: the answer is the last SQL run</li></ul>
+<p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows</p></div>''')
 
 # handoff from agent (top)
-arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
-label(600,524,'<b>Handoff:</b> out of budget · 3 repeats · final check failed twice','t')
+arrow([(390,524),(1736,524),(1736,1036)],'t',w=3)
+label(640,524,'<b>Handoff:</b> no progress in 4 steps · 3 repeats · out of budget','t')
 
-node(822,546,324,118,'harness','search_values · ask_user','The spelling of a value step 1 does not show, or the user\'s answer · copy kept for step 7',tsize=17)
-node(1226,560,296,92,'io','User','Answers the ask_user question at the terminal',shape='pill',tsize=19)
-arrow([(1146,584),(1222,584)],'k'); label(1186,584,'ask_user','k')
-arrow([(1226,630),(1150,630)],'b'); label(1186,630,'answer','b')
-arrow([(390,584),(818,584)],'k')
-arrow([(822,630),(394,630)],'b'); label(606,630,'spelling of a value · user\'s answer','b')
+node(822,546,324,118,'harness','search_values','The spelling and column of a value step 1 does not show · similar column names if no value',tsize=19)
+arrow([(390,584),(818,584)],'k'); label(606,584,'search_values','k')
+arrow([(822,630),(394,630)],'b'); label(606,630,'spelling of a value','b')
 
 node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN); the error note shows the real columns of the tables<br>3. Already run before (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql request','k')
@@ -127,38 +124,26 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (without seeing the agent\'s SQL) · 8 in total if no consensus · largest group',tsize=18)
-arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
-arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL does not run → error','b')
+node(822,1036,324,128,'decision','Final check','Answer: the last SQL run · read-only + existing tables/columns · does it run without error?',shape='hex',tsize=18)
+arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
+arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 
-node(1226,1050,296,112,'db','execute_sql (candidates)','Candidates not in cache are run (5 → 6)',tsize=18)
-arrow([(1146,1086),(1222,1086)],'k')
-arrow([(1226,1134),(1150,1134)],'k')
-node(822,1194,324,96,'decision','Confidence gate','Consensus: 3/3 or ≥6/8 → high · <span style="white-space:nowrap">4–5/8 → medium</span> · ≤3/8 → low',shape='hex',tsize=18)
-arrow([(984,1182),(984,1190)],'k')
-arrow([(822,1242),(394,1242)],'p'); label(606,1242,'medium → summary of two groups · work a bit more','p')
-arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low or 2nd medium → handoff','t')
+node(1574,1040,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
+arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice → handoff','t')
+arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'the teacher\'s submit goes here too','t')
 
-node(1574,1130,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
-
-node(822,1340,324,112,'decision','Final check','Did it really run · read-only + existing tables/columns · if empty: did the agent see it?',shape='hex',tsize=18)
-arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
-arrow([(822,1396),(394,1396)],'p'); label(606,1396,'failed → keep working','p')
-
-node(1222,1348,300,100,'io','Answer','<i>ok</i> · <i>low_confidence</i> if it failed<br><i>no_answer</i> if no SQL ran',shape='pill',tsize=20)
-arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'passed','p')
-arrow([(1574,1172),(1150,1172)],"t",w=3)
-label(1362,1195,'the teacher\'s submit → its own candidates → gate','t')
+node(1222,1230,300,100,'io','Answer','<i>ok</i> · <i>fallback</i> if it failed<br><i>no_answer</i> if no SQL returned rows',shape='pill',tsize=20)
+arrow([(984,1164),(984,1280),(1218,1280)],'p'); label(1100,1280,'passed','p')
 
 
 # experience log: evaluate.py writes the whole conversation after each question is scored; the agent is trained on it later
 node(1600,1500,270,100,'offline','Experience log','each question: whole conversation, answer, correct?',shape='cyl',tsize=18)
-arrow([(1522,1398),(1560,1398),(1560,1550),(1596,1550)],'g',dashed=True)
+arrow([(1522,1280),(1560,1280),(1560,1550),(1596,1550)],'g',dashed=True)
 node(70,1500,320,100,'policy','Agent training (later)','SFT → on-policy distillation → RL · train records only',dashed=True,tsize=18)
 arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'training data','g',dashed=True)
 
 # step badges
-for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(822,1032,7),(1226,1050,7),(848,1194,8),(848,1340,9),(1574,1130,10)]:
+for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(848,1036,7),(1574,1040,8)]:
     divs.append(f'<div class="bd" style="left:{bx-17}px;top:{by-17}px">{n}</div>')
 # legend
 ly=1750
@@ -168,7 +153,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result, and asks the user when the question is ambiguous. The answer is chosen among candidate groups by consensus, and everything that is submitted has really been executed. If it gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. The answer is the last SQL it ran and passes a final check; everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
@@ -190,7 +175,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): agentic Text-to-SQL with an agent loop, candidate selection and handoff</div>
+<div class="title">Predict – Gate – Settle (PGS): agentic Text-to-SQL with an agent loop, a final check and handoff</div>
 <div class="sub">What happens for a single user question. Each column is a component; numbers are the steps in AGENTIC_FLOW.md.</div>
 {''.join(divs)}
 </div></body></html>'''

@@ -1,13 +1,11 @@
 """Testlerin ortak küçük veritabanı. Kod içinde, her test için geçici bir klasörde kurulur."""
 
-import json
 import sqlite3
 
 import pytest
 
 import config
-from agent import llm, prompts
-from tests.fakes import sql_reply
+from agent import llm
 
 
 @pytest.fixture(autouse=True)
@@ -38,24 +36,12 @@ def db(tmp_path):
 
 @pytest.fixture
 def fake_model(monkeypatch):
-    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder.
-    Test bir candidate (adım 7) cevabı sıraya koymadıysa sahte model kendisi cevaplar: candidate agent'ın son submit
-    ettiği SQL'i yazar (consensus: high). Bu cevaplar seen'e yazılmaz; candidate'leri deneyen testler cevaplarını
-    sıraya koyar."""
+    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder."""
     replies, seen = [], []
-    last_submit = {}
 
     def fake_chat(messages, tools=None, seed=None, temperature=None, model=None):
-        system = messages[0]["content"]
-        head = replies[0]["text"] if replies else ""
-        if system == prompts.WRITE_SQL and not head.startswith("```sql"):
-            return sql_reply(last_submit.get("sql", "SELECT 1"))
         seen.append(list(messages))
-        reply = replies.pop(0)
-        for call in reply["tool_calls"]:
-            if call["function"]["name"] == "submit":
-                last_submit["sql"] = json.loads(call["function"]["arguments"])["sql"]
-        return reply
+        return replies.pop(0)
 
     monkeypatch.setattr(llm, "chat", fake_chat)
     return replies, seen

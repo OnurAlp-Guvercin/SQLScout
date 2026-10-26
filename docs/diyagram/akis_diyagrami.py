@@ -29,16 +29,16 @@ svg, divs = [], []
 
 def lane_headers():
     heads = [
-     ('policy','POLICY AGENT','Qwen3.5-4B',
+     ('policy','POLICY AGENT','Qwen3.5-0.8B · hedef Qwen3.5-4B',
       '<b>Şimdi:</b> eğitilmemiş. <b>İleride:</b> harness içinde, experience log\'la SFT → on-policy distillation → RL',
-      '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir: değer arar, SQL dener, sonuca bakar, gerekirse sorar'),
+      '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir: değer arar, SQL dener, sonuca bakar, düzeltir'),
      ('harness','HARNESS (LLM yok)','düz Python',
-      'Context preparation, search_values, ask_user, pre-check, sonucu metne çevirme, candidate selection, confidence gate, final check',
+      'Context preparation, search_values, pre-check, sonucu metne çevirme, final check, handoff kararı',
       '<b>Guardrail\'ler:</b> aynı çağrı tekrarı yok · uzun sonuç kırpılır · bağlam sıkıştırılır · budget azalınca submit hatırlatması'),
      ('db','GERÇEK VERİTABANI','SQLite, salt okunur',
       '<i>execute_sql</i> tool\'u olarak sunulur',
       '<b>Kural:</b> gönderilen her cevap gerçekten çalıştırılmış olur'),
-     ('teacher','TEACHER LLM','Qwen3.6-27B (4-bit, ~16–17 GB)',
+     ('teacher','TEACHER LLM','Qwen3.5-9B (API) · hedef Qwen3.6-27B',
       'Yalnızca handoff\'tan sonra kullanılır. Agent\'ın <b>kaldığı yerden</b>, yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',
       '<b>Rolü:</b> agent\'ın çözemediği vakayı çözer; çözümü eğitim verisi olur'),
     ]
@@ -95,21 +95,18 @@ node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Mevcut durumu düşün</li><li>TEK bir tool call seç</li>
-<li>Soru belirsizse kullanıcıya sor (<i>ask_user</i>)</li>
-<li>SQL dene, gerçek sonuca bak, düzelt</li>
-<li>Observation\'ı oku</li><li><i>submit</i>\'e kadar tekrarla</li></ul>
-<p>Budget: en fazla 10 tool call</p></div>''')
+<li>Önce soruyu cevaplayan SQL\'i yaz ve çalıştır</li>
+<li>Gerçek sonuca bak, gerekirse düzelt</li>
+<li>Sonuç soruyu cevaplıyorsa <i>submit</i>: cevap en son çalıştırılan SQL</li></ul>
+<p>Budget: en fazla 10 tool call; ilk 4'ünde dolu sonuç yoksa handoff</p></div>''')
 
 # handoff from agent (top)
-arrow([(390,524),(1736,524),(1736,1126)],'t',w=3)
-label(600,524,'<b>Handoff:</b> budget bitti · 3 tekrar · 2 kez final check','t')
+arrow([(390,524),(1736,524),(1736,1036)],'t',w=3)
+label(640,524,'<b>Handoff:</b> 4 adımda ilerleme yok · 3 tekrar · budget bitti','t')
 
-node(822,546,324,118,'harness','search_values · ask_user','Adım 1\'in göstermediği bir değerin yazılışı ya da kullanıcının cevabı · kopyası adım 7 için saklanır',tsize=17)
-node(1226,560,296,92,'io','Kullanıcı','ask_user sorusunu terminalde cevaplar',shape='pill',tsize=19)
-arrow([(1146,584),(1222,584)],'k'); label(1186,584,'ask_user','k')
-arrow([(1226,630),(1150,630)],'b'); label(1186,630,'cevap','b')
-arrow([(390,584),(818,584)],'k')
-arrow([(822,630),(394,630)],'b'); label(606,630,'değerin yazılışı · kullanıcının cevabı','b')
+node(822,546,324,118,'harness','search_values','Adım 1\'in göstermediği bir değerin yazılışı ve sütunu · değer yoksa benzer sütun adları',tsize=19)
+arrow([(390,584),(818,584)],'k'); label(606,584,'search_values','k')
+arrow([(822,630),(394,630)],'b'); label(606,630,'değerin yazılışı','b')
 
 node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN); hata notu tabloların gerçek sütunlarını gösterir<br>3. Daha önce çalıştı mı (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql isteği','k')
@@ -124,38 +121,26 @@ node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boşsa: değerin 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
-node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (agent\'ın SQL\'ini görmeden) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
-arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
-arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL çalışmıyor → hata','b')
+node(822,1036,324,128,'decision','Final check','Cevap: en son çalıştırılan SQL · salt okuma + var olan tablo/sütun · hatasız çalışıyor mu?',shape='hex',tsize=18)
+arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
+arrow([(822,1130),(394,1130)],'p'); label(606,1130,'geçmedi → not · çalışmaya devam','p')
 
-node(1226,1050,296,112,'db','execute_sql (candidate\'ler)','Cache\'te olmayan candidate\'ler çalıştırılır (5 → 6)',tsize=18)
-arrow([(1146,1086),(1222,1086)],'k')
-arrow([(1226,1134),(1150,1134)],'k')
-node(822,1194,324,96,'decision','Confidence gate','Consensus: 3/3 ya da ≥6/8 → high · 4–5/8 → medium · ≤3/8 → low',shape='hex',tsize=18)
-arrow([(984,1182),(984,1190)],'k')
-arrow([(822,1242),(394,1242)],'p'); label(606,1242,'medium → iki grubun özeti · biraz daha çalış','p')
-arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low ya da 2. kez medium → handoff','t')
+node(1574,1040,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
+arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'2 kez geçmedi → handoff','t')
+arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'teacher\'ın submit\'i de buradan geçer','t')
 
-node(1574,1130,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
-
-node(822,1340,324,112,'decision','Final check','Gerçekten çalıştı mı · salt okuma + var olan tablo/sütun · boşsa: agent bunu görmüş müydü?',shape='hex',tsize=18)
-arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
-arrow([(822,1396),(394,1396)],'p'); label(606,1396,'geçmedi → çalışmaya devam','p')
-
-node(1222,1348,300,100,'io','Cevap','<i>ok</i> · geçmediyse <i>low_confidence</i><br>çalışan SQL yoksa <i>no_answer</i>',shape='pill',tsize=20)
-arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'geçti','p')
-arrow([(1574,1172),(1150,1172)],"t",w=3)
-label(1362,1195,'teacher\'ın submit\'i → kendi candidate\'leri → gate','t')
+node(1222,1230,300,100,'io','Cevap','<i>ok</i> · geçmediyse <i>fallback</i><br>dolu sonuç veren SQL yoksa <i>no_answer</i>',shape='pill',tsize=20)
+arrow([(984,1164),(984,1280),(1218,1280)],'p'); label(1100,1280,'geçti','p')
 
 
 # experience log: evaluate.py her soru puanlandıktan sonra bütün konuşmayı yazar; agent ileride bununla eğitilir
 node(1600,1500,270,100,'offline','Experience log','her soru: bütün konuşma, cevap, doğru mu',shape='cyl',tsize=18)
-arrow([(1522,1398),(1560,1398),(1560,1550),(1596,1550)],'g',dashed=True)
+arrow([(1522,1280),(1560,1280),(1560,1550),(1596,1550)],'g',dashed=True)
 node(70,1500,320,100,'policy','Agent eğitimi (ileride)','SFT → on-policy distillation → RL · yalnızca train kayıtları',dashed=True,tsize=18)
 arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'eğitim verisi','g',dashed=True)
 
 # step badges
-for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(822,1032,7),(1226,1050,7),(848,1194,8),(848,1340,9),(1574,1130,10)]:
+for (bx,by,n) in [(84,362,1),(822,350,1),(70,500,2),(822,546,3),(462,724,4),(822,700,5),(1226,700,6),(822,900,6),(848,1036,7),(1574,1040,8)]:
     divs.append(f'<div class="bd" style="left:{bx-17}px;top:{by-17}px">{n}</div>')
 # legend
 ly=1750
@@ -165,7 +150,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, soru belirsizse kullanıcıya sorar. Cevap candidate grupları arasından consensus ile seçilir ve gönderilen her şey gerçekten çalıştırılmış olur. Takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, düzeltir. Cevap, en son çalıştırdığı SQL\'dir ve final check\'ten geçer; gönderilen her şey gerçekten çalıştırılmış olur. İlerleyemez ya da takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
@@ -187,7 +172,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): agent loop, candidate selection ve handoff ile agentic Text-to-SQL</div>
+<div class="title">Predict – Gate – Settle (PGS): agent loop, final check ve handoff ile agentic Text-to-SQL</div>
 <div class="sub">Tek bir kullanıcı sorusu için olanlar. Her sütun bir bileşendir; numaralar AGENTIC_FLOW.md'deki adımlardır.</div>
 {''.join(divs)}
 </div></body></html>'''

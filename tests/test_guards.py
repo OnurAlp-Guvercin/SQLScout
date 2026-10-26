@@ -7,23 +7,30 @@ from agent import prompts
 from harness import guards
 from harness.tools import execute_sql
 
-TOOLS = [prompts.SUBMIT]
+TOOLS = prompts.TOOLS
 
 
 def reply_with(name, arguments, text=""):
     return {"text": text, "tool_calls": [{"id": "c1", "function": {"name": name, "arguments": arguments}}]}
 
 
-def test_valid_submit_is_read():
-    step = guards.read_tool_call(reply_with("submit", '{"sql": "SELECT 1"}'), TOOLS)
+def test_valid_call_is_read():
+    step = guards.read_tool_call(reply_with("search_values", '{"query": "Boston"}'), TOOLS)
     assert step["error"] is None
-    assert step["tool"] == "submit"
-    assert step["args"] == {"sql": "SELECT 1"}
-    assert step["id"] == "c1"
+    assert step["tool"] == "search_values" and step["args"] == {"query": "Boston"} and step["id"] == "c1"
+    assert guards.read_tool_call(reply_with("submit", "{}"), TOOLS)["error"] is None  # submit argümansız
+
+
+def test_sql_block_in_text_is_an_execute_step():
+    step = guards.read_tool_call({"text": "Let me count.\n```sql\nSELECT 1\n```", "tool_calls": []}, TOOLS)
+    assert step["error"] is None and step["tool"] == "execute_sql" and step["args"] == {"sql": "SELECT 1"}
+    assert step["id"] is None
+    assert guards.sql_block("```\nSELECT 2\n```") == "SELECT 2"
+    assert guards.sql_block("```sql\nSELECT 3") == "SELECT 3"  # kapanmamış blok (cevap kesildi)
 
 
 def test_plain_text_is_rejected():
-    step = guards.read_tool_call({"text": "SELECT 1", "tool_calls": []}, TOOLS)
+    step = guards.read_tool_call({"text": "The answer is 150.", "tool_calls": []}, TOOLS)
     assert step["error"].startswith("Rejected: your reply was not a tool call")
     assert step["id"] is None
 
@@ -34,29 +41,30 @@ def test_unknown_tool_is_rejected():
 
 
 def test_broken_json_is_rejected():
-    step = guards.read_tool_call(reply_with("submit", '{"sql": "SELECT 1"'), TOOLS)
+    step = guards.read_tool_call(reply_with("search_values", '{"query": "Boston"'), TOOLS)
     assert "not a valid JSON object" in step["error"]
     assert step["arguments"] == "{}"  # bozuk argument'lar konuşma geçmişine girmez
 
 
 def test_arguments_that_are_not_an_object_are_rejected():
-    step = guards.read_tool_call(reply_with("submit", '["SELECT 1"]'), TOOLS)
+    step = guards.read_tool_call(reply_with("search_values", '["Boston"]'), TOOLS)
     assert "not a valid JSON object" in step["error"]
     assert step["arguments"] == "{}"
 
 
 def test_missing_argument_is_rejected():
-    step = guards.read_tool_call(reply_with("submit", '{"sql": "  "}'), TOOLS)
-    assert "needs a non-empty value for: sql" in step["error"]
-    assert "needs a non-empty value for: sql" in guards.read_tool_call(reply_with("submit", '{"sql": 123}'), TOOLS)["error"]
+    step = guards.read_tool_call(reply_with("search_values", '{"query": "  "}'), TOOLS)
+    assert "needs a non-empty value for: query" in step["error"]
+    number = guards.read_tool_call(reply_with("search_values", '{"query": 123}'), TOOLS)
+    assert "needs a non-empty value for: query" in number["error"]
 
 
 def test_only_first_of_many_calls_is_taken():
     reply = {"text": "", "tool_calls": [
-        {"id": "a", "function": {"name": "submit", "arguments": '{"sql": "SELECT 1"}'}},
-        {"id": "b", "function": {"name": "submit", "arguments": '{"sql": "SELECT 2"}'}},
+        {"id": "a", "function": {"name": "search_values", "arguments": '{"query": "Boston"}'}},
+        {"id": "b", "function": {"name": "submit", "arguments": "{}"}},
     ]}
-    assert guards.read_tool_call(reply, TOOLS)["args"] == {"sql": "SELECT 1"}
+    assert guards.read_tool_call(reply, TOOLS)["args"] == {"query": "Boston"}
 
 
 def past(*steps):
@@ -73,10 +81,8 @@ def test_repeat_rules():
     assert guards.earlier_calls(other_sql, past(old)) == []
     search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "..."}
     assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
-    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Submitted."}
-    assert guards.earlier_calls(dict(submit), past(submit)) == []  # kabul edilen ya da notla dönen submit tekrar değil
-    failed = {"tool": "submit", "args": {"sql": "SELECT x"}, "result": "Submit rejected: your query does not run: ..."}
-    assert guards.earlier_calls({"tool": "submit", "args": {"sql": "SELECT  x"}}, past(failed)) == [failed]
+    submit = {"tool": "submit", "args": {}, "result": "Final check failed: ..."}
+    assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz (final check sınırlar)
     rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argument'ı yok
     assert guards.earlier_calls(other_sql, past(rejected)) == []
     broken = {"tool": "execute_sql", "args": {}, "error": "Rejected: ..."}  # ör. bozuk JSON, önceden çalışmış SQL var
