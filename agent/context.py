@@ -33,12 +33,12 @@ class Context:
     ran_by_agent: set = field(default_factory=set)  # agent'ın execute_sql ile çalıştırıp sonucunu gördüğü SQL'ler
     search_notes: list = field(default_factory=list)  # search sonuçlarının candidate prompt'u için kopyası
     clarifications: list = field(default_factory=list)  # ask_user soruları ve kullanıcının cevapları
+    stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     medium_notes: int = 0  # ikinci medium'da handoff
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
-    selected_sql: str = None  # en son seçilen cevap (adım 7'nin seçtiği ya da teacher'ın submit ettiği SQL)
+    selected_sql: str = None  # en son seçilen cevap (adım 7'nin seçtiği SQL)
     last_ok_sql: str = None  # en son hatasız çalışan SQL; fallback answer'da kullanılır
     handoff_reason: str = None
-    first_mistake: dict = None  # ilk hatalı SQL ve aldığı not; database memory'ye yazılır
 
     # Ölçüm sayaçları (new_stats)
     stats: dict = field(default_factory=new_stats)

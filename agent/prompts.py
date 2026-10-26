@@ -50,8 +50,9 @@ SEARCH_VALUES = {"type": "function", "function": {
 
 ASK_USER = {"type": "function", "function": {
     "name": "ask_user",
-    "description": "Ask the user one short clarification question. Use it only when the question is ambiguous and "
-                   "the schema, values and evidence cannot resolve it.",
+    "description": "Ask the user one short clarification question about what the question means. Use it only when "
+                   "the question is ambiguous and the schema, values and evidence cannot resolve it. Do not repeat the "
+                   "question and do not ask the user to check SQL: the user does not know SQL.",
     "parameters": {"type": "object", "required": ["question"],
                    "properties": {"question": {"type": "string", "description": "The clarification question."}}},
 }}

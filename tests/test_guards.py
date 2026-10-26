@@ -48,6 +48,7 @@ def test_arguments_that_are_not_an_object_are_rejected():
 def test_missing_argument_is_rejected():
     step = guards.read_tool_call(reply_with("submit", '{"sql": "  "}'), TOOLS)
     assert "needs a non-empty value for: sql" in step["error"]
+    assert "needs a non-empty value for: sql" in guards.read_tool_call(reply_with("submit", '{"sql": 123}'), TOOLS)["error"]
 
 
 def test_only_first_of_many_calls_is_taken():
@@ -73,9 +74,13 @@ def test_repeat_rules():
     search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "..."}
     assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
     submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Submitted."}
-    assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz
+    assert guards.earlier_calls(dict(submit), past(submit)) == []  # kabul edilen ya da notla dönen submit tekrar değil
+    failed = {"tool": "submit", "args": {"sql": "SELECT x"}, "result": "Submit rejected: your query does not run: ..."}
+    assert guards.earlier_calls({"tool": "submit", "args": {"sql": "SELECT  x"}}, past(failed)) == [failed]
     rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argument'ı yok
     assert guards.earlier_calls(other_sql, past(rejected)) == []
+    broken = {"tool": "execute_sql", "args": {}, "error": "Rejected: ..."}  # ör. bozuk JSON, önceden çalışmış SQL var
+    assert guards.earlier_calls(broken, past(old)) == []
 
 
 def test_long_rows_and_cells_are_trimmed():

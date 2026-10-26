@@ -90,7 +90,7 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','User question','e.g. “Which category had the most returns in 2025?”',shape='pill',tsize=18)
-node(822,350,324,124,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles · database memory · over 16K: the policy model selects tables',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles · over 16K: the policy model selects tables',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'question','k')
 arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'initial context','b')
 
@@ -114,7 +114,7 @@ arrow([(1226,630),(1150,630)],'b'); label(1186,630,'answer','b')
 arrow([(390,584),(818,584)],'k')
 arrow([(822,630),(394,630)],'b'); label(606,630,'spelling of a value · user\'s answer','b')
 
-node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN)<br>3. Already run before (cache)?',tsize=18)
+node(822,700,324,140,'harness','Pre-check (in order)','1. Read-only?<br>2. Syntax, tables, columns (EXPLAIN); the error note shows the real columns of the tables<br>3. Already run before (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql request','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'check error or cached result','b')
 
@@ -127,7 +127,7 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (prompt: question + evidence + user answers + schema + search notes; no agent SQL) · 8 in total if no consensus · largest group',tsize=18)
+node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'s SQL + 2 extra candidates (without seeing the agent\'s SQL) · 8 in total if no consensus · largest group',tsize=18)
 arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
 arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL does not run → error','b')
 
@@ -141,20 +141,15 @@ arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low or 2nd medium →
 
 node(1574,1130,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
 
-node(822,1340,324,112,'decision','Final check','Runs it if not yet run · read-only + existing tables/columns · if empty: did the agent see it?',shape='hex',tsize=18)
+node(822,1340,324,112,'decision','Final check','Did it really run · read-only + existing tables/columns · if empty: did the agent see it?',shape='hex',tsize=18)
 arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
 arrow([(822,1396),(394,1396)],'p'); label(606,1396,'failed → keep working','p')
 
 node(1222,1348,300,100,'io','Answer','<i>ok</i> · <i>low_confidence</i> if it failed<br><i>no_answer</i> if no SQL ran',shape='pill',tsize=20)
 arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'passed','p')
-arrow([(1736,1240),(1736,1480),(984,1480),(984,1456)],'t',w=3)
-label(1530,1480,'the teacher\'s answer also goes through final check','t')
+arrow([(1574,1172),(1150,1172)],"t",w=3)
+label(1362,1195,'the teacher\'s submit → its own candidates → gate','t')
 
-# --- database memory ---
-node(822,1540,324,80,'harness','Database memory','mistake → fix records · no gold',dashed=True,tsize=18)
-# database memory: written from the answer when the question ends ok; the next question reads it in step 1
-arrow([(1300,1448),(1300,1580),(1150,1580)],'g',dashed=True); label(1300,1525,'ok + a mistake along the way','g',dashed=True)
-arrow([(984,1620),(984,1650),(1938,1650),(1938,440),(1150,440)],'g',dashed=True); label(1440,440,'step 1 of the next question','g',dashed=True)
 
 # experience log: evaluate.py writes the whole conversation after each question is scored; the agent is trained on it later
 node(1600,1500,270,100,'offline','Experience log','each question: whole conversation, answer, correct?',shape='cyl',tsize=18)

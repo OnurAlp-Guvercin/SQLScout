@@ -9,13 +9,22 @@ import config
 from agent import llm, prompts
 from harness.tools import execute_sql
 
+REJECTED = "Submit rejected"  # submit edilen SQL çalışmıyor; aynısının yeniden submit'i tekrar sayılır (guards)
+
 
 def run(sql, context):
-    """Agent'ın submit'i. Return: {"done": cevap kabul edildi mi, "note": agent'a dönecek not, "handoff": nedeni}.
-    Submit edilen SQL çalışmıyorsa candidate üretilmez; hata agent'a gider."""
+    """Agent ya da handoff'tan sonra teacher submit(sql) çağırınca run_steps bunu çağırır (adım 7–9).
+    1. Submit edilen SQL çalışmıyorsa candidate üretilmez; hata agent'a not olarak gider.
+    2. candidates (adım 7): model agent'ın SQL'ini görmeden 2 ek SQL yazar, uzlaşmazlarsa toplam 8'e tamamlanır; aynı
+       sonucu verenler gruplanır, en kalabalık grubun SQL'i context.selected_sql olur.
+    3. confidence (adım 8): en kalabalık grup 3/3 ya da ≥6/8 ise high; 4–5/8 medium (iki grubun özeti agent'a gider,
+       ikinci medium'da handoff); ≤3/8 low (handoff).
+    4. final_check (adım 9): seçilen SQL hatasız çalışıyor mu, boşsa agent bunu görmüş müydü? Geçerse cevap kabul
+       edilir; geçmezse not agent'a gider, 2. kez geçmezse handoff.
+    Return: {"done": cevap kabul edildi mi, "note": agent'a gidecek not ya da None, "handoff": handoff nedeni ya da None}."""
     if result_of(sql, context) is None:
-        error = execute_sql.check(context.db_path, sql) or execute_sql.run_sql(sql, context)["error"]
-        return {"done": False, "note": f"Submit rejected: your query does not run: {error}", "handoff": None}
+        return {"done": False, "note": f"{REJECTED}: your query does not run: {error_of(sql, context)}",
+                "handoff": None}
     groups, count = candidates(sql, context)  # adım 7
     context.selected_sql = groups[0]["sqls"][0] if groups else None
     level = confidence(groups, count)  # adım 8
@@ -63,13 +72,14 @@ def write_candidates(sqls, results, count, context):
     """count candidate'i aynı anda ister (yerel sunucu bunları tek batch'te üretir), sonra sırayla çalıştırır.
     Prompt'ta adım 1'in bağlamı, search notes ve clarification'lar var; agent'ın SQL'i yok (kopyalamasın)."""
     prompt = candidate_prompt(context)
+    model = config.TEACHER_MODEL if context.teacher else config.POLICY_MODEL  # submit edenin modeli yazar
     seeds = []
     for _ in range(count):
         context.stats["candidates"] += 1
         # Her candidate ayrı bir örnek olsun diye seed'i farklı; aynı seed aynı SQL'i üretebilir.
         seeds.append(None if context.seed is None else context.seed * 100 + context.stats["candidates"])
     with ThreadPoolExecutor(count) as pool:
-        replies = list(pool.map(lambda seed: write_sql(prompt, config.CANDIDATE_TEMPERATURE, seed), seeds))
+        replies = list(pool.map(lambda seed: write_sql(prompt, config.CANDIDATE_TEMPERATURE, seed, model), seeds))
     for reply in replies:
         context.count_usage(reply)
         sqls.append(reply["sql"])
@@ -87,10 +97,10 @@ def candidate_prompt(context):
     return prompt
 
 
-def write_sql(prompt, temperature=None, seed=None):
+def write_sql(prompt, temperature=None, seed=None, model=None):
     """Tool'suz tek bir SQL. Return: modelin cevabı, "sql" alanıyla."""
     messages = [{"role": "system", "content": prompts.WRITE_SQL}, {"role": "user", "content": prompt}]
-    reply = llm.chat(messages, temperature=temperature, seed=seed)
+    reply = llm.chat(messages, temperature=temperature, seed=seed, model=model)
     reply["sql"] = extract_sql(reply["text"])
     return reply
 
@@ -104,6 +114,11 @@ def extract_sql(text):
     if match:
         return match.group(1).strip()
     return re.sub(r"^```(sql)?", "", text.strip(), flags=re.IGNORECASE).strip()
+
+
+def error_of(sql, context):
+    """Çalışmayan bir SQL'in hata mesajı: pre-check notu ya da çalıştırma hatası."""
+    return execute_sql.check(context.db_path, sql) or execute_sql.run_sql(sql, context)["error"]
 
 
 def result_of(sql, context):

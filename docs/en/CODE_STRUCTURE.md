@@ -20,17 +20,16 @@ This document describes how the code is organized, how it is written and in what
 
 | File | Place in the flow | What it does |
 |---|---|---|
-| `agent/loop.py` | Steps 2, 10 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → memory. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`. `next_step`: the next tool call from the model. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (the SQL selected in step 7 → the candidates' consensus → the last SQL that ran). `write_experience`: the experience log, when each question ends |
+| `agent/loop.py` | Steps 2, 10 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → experience log. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`. `next_step`: the next tool call from the model. Handoff: `start_teacher`, `fallback_answer` (the SQL selected in step 7 → the candidates' consensus → the last SQL that ran). `write_experience`: the experience log, when each question ends |
 | `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, candidate, table selection, the teacher's takeover note) and the tool definitions (`TOOLS`) |
-| `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). A local `mlx_lm.server` or OpenRouter; both use the OpenAI format, the address is in `config.py`. To try it: `python -m agent.llm "question"` |
+| `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). The policy goes to a local `mlx_lm.server`, the teacher to OpenRouter (`LLM_URL`, `TEACHER_URL`); both use the OpenAI format, the addresses are in `config.py`. To try it: `python -m agent.llm "question"` |
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
-| `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, database memory, evidence, question). If the context exceeds 16K, `select_tables`: an LLM selects the tables the question needs. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
-| `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`); a copy of what was found is written to the search notes |
+| `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). If the context exceeds 16K, `select_tables`: an LLM selects the tables the question needs. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
+| `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`); a copy of what was found is written to the search notes. If no value is found, the columns with a similar name (`similar_columns`) |
 | `harness/tools/ask_user.py` | Step 3 | Asks the person at the terminal (in `run.py` and in `evaluate.py` alike; questions arriving at the same time come one at a time); the answer is stored as a clarification |
-| `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). `remember_mistake`: the question's first mistake (for memory) |
-| `harness/tools/submit.py` | Steps 7–9 | `run`: the agent's `submit`. `candidates`: extra SQL queries (`write_sql`), grouping, selection. `confidence`: the confidence gate. `medium_note`. `final_check`. `consensus_answer`: the candidates' consensus for the fallback answer |
+| `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). |
+| `harness/tools/submit.py` | Steps 7–9 | `run`: the agent's and the teacher's `submit`. `candidates`: extra SQL queries (`write_sql`), grouping, selection. `confidence`: the confidence gate. `medium_note`. `final_check`. `consensus_answer`: the candidates' consensus for the fallback answer |
 | `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `earlier_calls`: repeated calls (handoff on the third repeat). `compress`: compressing the context |
-| `harness/memory.py` | Step 1, after the question | Reads the database memory (the 3 most similar records by TF-IDF) and writes it: `experience/memory/<db_id>.jsonl` |
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
 | `config.py` | | All constants (table below) |
@@ -95,8 +94,6 @@ def run_steps(context):
             result = ask_user.run(question, context)                # step 3
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(sql, context)                  # steps 4–6
-        elif context.teacher:
-            return teacher_submit(step, context)                    # straight to the final check
         else:
             outcome = submit.run(sql, context)                      # steps 7–9
             if outcome["done"]:
@@ -115,27 +112,26 @@ def run_steps(context):
 |---|---|---|
 | Tool-call budget | Agent 10, teacher half of that (5). Rejected requests count, candidate executions do not | Steps 2, 10 |
 | Budget left | Written under every result; in the last 2 a "submit" reminder is added too (`BUDGET_WARNING`) | Step 2 |
-| Repeat limit | If the same call is repeated a third time, handoff (`MAX_REPEATS`) | Steps 2, 10 |
+| Repeat limit | If the same call is repeated a third time, handoff (`MAX_REPEATS`); the agent and the teacher are counted only by their own repeats. `submit` counts as a repeat only when it resends a SQL query that does not run | Steps 2, 10 |
 | `ask_user` limit | 5 per question (agent and teacher combined); taken from the budget | Step 3 |
 | Number of search results | 5 | Step 3 |
 | Value index | Texts longer than 100 characters are not indexed; in one search at most 200 candidates from the index are ranked by similarity | Step 3 |
 | Similar spelling threshold | `difflib` similarity at least 0.8 | Step 3 |
 | Initial context | At most 16K tokens; if it overflows, the policy model (temperature 0) selects the tables the question needs, the others shrink to one line | Step 1 |
 | Values in the profile | For text columns, the 10 most frequent values (all of them if there are at most 10 distinct values), at most 40 characters; for numeric columns, only min and max | Step 1 |
-| Database memory | The 3 records most similar to the question (TF-IDF similarity) | Step 1 |
 | Timeout / row limit | 30 seconds / 100 rows | Step 6 |
 | Result shown to the agent | At most 20 rows, at most 100 characters per cell | Step 6 |
 | Context limit | 32K tokens; if exceeded, the oldest observations are reduced to one line | Every step |
 | First extra candidates | 2 | Step 7 |
 | Total candidates | Filled up to 8 if there is no consensus (including the agent's SQL) | Step 7 |
-| Candidate temperature | 0.8; each candidate is a separate sample from the same prompt | Step 7 |
+| Candidate temperature | 0.8; each candidate is a separate sample from the same prompt. The candidates are written by the model that submitted (the policy for the agent's, the teacher for the teacher's) | Step 7 |
 | Confidence gate | High: 3/3 or ≥6/8 · Medium: 4–5/8 · Low: ≤3/8. Always out of 8; a candidate that gives an error counts in no group | Step 8 |
 | Medium note | The 2 largest groups; for each, a representative SQL, number of candidates, columns, number of rows, first 3 rows. At most once | Step 8 |
 | Final check retries | If it fails twice, handoff | Step 9 |
-| Policy and teacher generation | Temperature 0.7, top_p 0.8; thinking mode off | Steps 2, 10 |
+| Policy and teacher generation | Temperature 0 (the most likely reply); if the last call was rejected or was a repeat, the next step is sampled with temperature 0.7 (`RETRY_TEMPERATURE`); top_p 0.8; thinking mode off | Steps 2, 10 |
 | Model request | Answer at most 1024 tokens; 300 seconds timeout per request; on a transient API error 8 retries, waiting from 5 s and doubling | |
 | Parallelism in evaluation | 8 questions at the same time (`EVAL_WORKERS`; the local server batches requests). 4 on the API | |
-| Models | Currently all model calls go to `Qwen/Qwen3.5-0.8B` on a local `mlx_lm.server` (only to see that the flow works; no seed is sent, because the server does not batch requests with a seed). Switching back to the API is described in the comment in `config.py`: policy `qwen/qwen3.5-9b` (DeepInfra, bf16), teacher `qwen/qwen3.6-27b`. Target local models: policy `Qwen3.5-4B` (`mlx-community/Qwen3.5-4B-bf16`), teacher `Qwen3.6-27B` (4-bit) | |
+| Models | The policy (and its candidates) is `Qwen/Qwen3.5-0.8B` on a local `mlx_lm.server` (no seed is sent, because the server does not batch requests with a seed). The teacher is `qwen/qwen3.5-9b` on the OpenRouter API (DeepInfra, bf16; key in `.env`). Running the teacher locally too, or moving the policy to the API, is described in the comment in `config.py`. Target local models: policy `Qwen3.5-4B` (`mlx-community/Qwen3.5-4B-bf16`), teacher `Qwen3.6-27B` (4-bit) | |
 | Seeds | 0, 1, 2 | |
 | Sample | `--limit n`: a fixed sample of the questions, chosen with seed 0, in dataset order (`SAMPLE_SEED`). The same n always picks the same questions | |
 
@@ -145,9 +141,8 @@ def run_steps(context):
 - The first line is the experiment itself: experiment name, seed, dataset (`bird` / `mini_interact`), `--limit`, number of questions, all `config.py` values and the prompt texts.
 - Every following line is a question: `question_id`, `db_id`, `sql` (the answer), `label`, `answered_by` (agent / teacher), `correct` (empty if there is no correct SQL), `tool_calls`, `executions` (number of real executions), `candidates`, `clarifications`, `handoff_reason`, `steps` (every tool call and observation; the `by` field says agent or teacher), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. If the gold SQL gives an error, `gold_error` is written; if the model does not answer, `error`.
 
-**`experience/log.jsonl`** (experience log; the agent's future training data, records accumulate; written by `agent/loop.py` when each question ends): each line is a question: time, split (`use` in use, `dev` in evaluation; `correct` is filled only in `dev`), dataset, `question_id`, `db_id`, question, evidence, gold SQL, answer SQL, `label`, `correct`, `answered_by`, `handoff_reason`, model names, seed and `messages` (the whole conversation the agent, and after a handoff the teacher, saw: system prompt, step 1 context, every tool call and observation). Only `split = train` lines are used for training. `experience/executions.jsonl` holds older records in the previous format (one line per SQL execution).
+**`experience/log.jsonl`** (experience log; the agent's future training data, records accumulate; written by `agent/loop.py` when each question ends): each line is a question: time, split (`use` in use, `dev` in evaluation; `correct` is filled only in `dev`), dataset, `question_id`, `db_id`, question, evidence, gold SQL, answer SQL, `label`, `correct`, `answered_by`, `handoff_reason`, model names, seed and `messages` (the whole conversation the agent, and after a handoff the teacher, saw: system prompt, step 1 context, every tool call and observation). Only `split = train` lines are used for training.
 
-**`experience/memory/<db_id>.jsonl`** (database memory): the question, the first mistaken SQL, the note it got, the answer SQL.
 
 ## Build order
 
@@ -159,7 +154,7 @@ The system was written in small stages. Each stage added a single part, was test
 | Phase 1-B1: First working agent | 4–8 | Running the model; tool-free single SQL (baseline); agent loop and `submit`; `execute_sql`; pre-check |
 | Phase 1-B2: Trial loop | 9–15 | Repeat guardrail and cache; trimming long results; compressing the context; `search_values` |
 | Phase 1-B3: Verifying the answer | 17–21 | Final check; candidates; adaptive rule (filling up to 8); confidence gate; medium note |
-| Phase 1-B4: Help and memory | 22–25 | Handoff (teacher); `ask_user`; database memory |
+| Phase 1-B4: Help | 22–23 | Handoff (teacher); `ask_user` |
 | Phase 1 results | 29 | Measurement with the full system |
 | Phase 2: Mini-Interact | 30, 33 | Mini-Interact data; measurement |
 | Local models | 35 | Policy and teacher run locally; memory fit and speed |

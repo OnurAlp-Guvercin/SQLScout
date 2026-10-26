@@ -5,22 +5,27 @@ import re
 
 import config
 from db import sqlite_db, sqlite_schema
+from db.sqlite_schema import show_name
 
 EMPTY_HINT = "If the query filters on a text value, check how that value is written with search_values."
 
 
 def run(sql, context):
-    """Agent'ın execute_sql çağrısı. Return: agent'a gidecek metin."""
+    """Agent execute_sql(sql) çağırınca run_steps bunu çağırır (adım 4–6).
+    1. check (pre-check, adım 5): sorgu salt okuma mı, EXPLAIN geçiyor mu? Geçmiyorsa sorgu çalıştırılmaz, not
+       return edilir.
+    2. run_sql (adım 6): sorgu çalıştırılır; aynı SQL bu soruda daha önce çalıştıysa sonuç cache'ten gelir.
+       SQL context.ran_by_agent'a eklenir: final check boş bir cevabı ancak agent onu görmüşse kabul eder.
+    3. format_result: sonuç metne çevrilir (en fazla 20 satır; boşsa search_values hatırlatması).
+    4. Hatasız ve dolu sonuç context.last_ok_sql olur (fallback için).
+    Return: agent'a gidecek metin, ör. "Columns: superhero_name\n358 rows (first 20 shown):\n..." ya da pre-check notu."""
     note = check(context.db_path, sql)  # adım 5
     if note:
-        remember_mistake(sql, note, context)
         return note
     result = run_sql(sql, context)  # adım 6
     context.ran_by_agent.add(sql_key(sql))
     text = format_result(result)
-    if not result["ok"] or result["row_count"] == 0:
-        remember_mistake(sql, text, context)
-    else:
+    if result["ok"] and result["row_count"] > 0:
         context.last_ok_sql = sql
     return text
 
@@ -31,24 +36,74 @@ def check(db_path, sql):
         return "Rejected: only read-only queries that start with SELECT or WITH can be run."
     plan = sqlite_db.explain(db_path, sql)  # sözdizimi, tablo, sütun
     if not plan["ok"]:
-        return f"Rejected before running: {plan['error']}" + column_hint(db_path, plan["error"])
+        return f"Rejected before running: {plan['error']}" + error_hint(db_path, sql, plan["error"])
     return None
 
 
-def column_hint(db_path, error):
-    """Olmayan bir sütun yazılmışsa o adda sütunu olan tabloları söyler (ör. sütun başka tablodadır)."""
-    match = re.match(r"no such column: (.+)", error)
-    if not match:
+def error_hint(db_path, sql, error):
+    """Olmayan sütun ya da tablo, belirsiz sütun hatasına düzeltmek için gereken bilgiyi ekler: o adda sütunu olan
+    tablolar, alias'ı olan bir tablonun kendi adıyla yazılması, sorgudaki tabloların (alias'larıyla) gerçek sütunları
+    ya da veritabanındaki tablolar.
+    Ör. "no such column: T1.backup_item" → ". A column with this name exists in: stores. Tables in your query and
+    their columns: items (T1): id, city, price, status."."""
+    tables = sqlite_schema.schema(db_path)
+    if error.startswith("no such table:"):
+        return ". Tables in this database: " + ", ".join(show_name(table["name"]) for table in tables) + "."
+    if not error.startswith(("no such column:", "ambiguous column name:")):
         return ""
-    column = match.group(1).split(".")[-1].strip("`\"").lower()
-    tables = []
-    for table in sqlite_schema.schema(db_path):
-        for info in table["columns"]:
-            if info["name"].lower() == column:
-                tables.append(table["name"])
-    if not tables:
-        return ""
-    return f". A column with this name exists in: {', '.join(tables)}."
+    name = error.split(":", 1)[1].strip()  # ör. "T1.backup_item" ya da "backup_item"
+    qualifier, _, column = name.rpartition(".")
+    qualifier, column = qualifier.strip("`\"[]").lower(), column.strip("`\"[]")
+    having = [show_name(table["name"]) for table in tables
+              if any(info["name"].lower() == column.lower() for info in table["columns"])]
+    hint = ""
+    if error.startswith("ambiguous"):
+        hint += ". Several tables in your query have this column: write it with its table name or alias, e.g. T1.col"
+    elif having:
+        hint += f". A column with this name exists in: {', '.join(having)}"
+    used = tables_in_query(sql, tables)
+    if not used:
+        return hint + ". Table and column names are listed in the schema at the start."
+    parts = []
+    for table, aliases in used:
+        if aliases and qualifier == table["name"].lower():  # FROM client c ... client.gender: alias'la yazılmalı
+            hint += f". {show_name(table['name'])} has the alias {aliases[0]} in your query: write {aliases[0]}.{column}"
+        label = show_name(table["name"]) + (f" ({', '.join(aliases)})" if aliases else "")
+        parts.append(label + ": " + ", ".join(show_name(info["name"]) for info in table["columns"]))
+    return hint + ". Tables in your query and their columns: " + "; ".join(parts) + "."
+
+
+# Tırnaksız yazılınca tablo adı ya da alias olamayan SQL kelimeleri (ör. ORDER BY, veritabanında order tablosu olsa da).
+SQL_WORDS = {"select", "from", "where", "join", "inner", "left", "right", "full", "outer", "cross", "natural", "on",
+             "using", "group", "order", "by", "having", "limit", "offset", "union", "except", "intersect", "and", "or",
+             "not", "in", "is", "as", "case", "when", "then", "else", "end", "distinct", "between", "like", "null",
+             "window", "values", "table", "index", "key", "check", "default", "references", "primary"}
+
+
+def tables_in_query(sql, tables):
+    """Sorguda adı geçen şema tabloları ve alias'ları: [(tablo, [alias, ...])], sorgudaki sırayla.
+    SQL token'lara ayrılır; metin değerleri ('...') tek token olarak atlanır, böylece içlerindeki kelimeler tablo
+    sanılmaz. Yalnızca not için kullanılır: bir alias'ı kaçırmak notu kısaltır, sonucu değiştirmez."""
+    matches = list(re.finditer(r"'(?:[^']|'')*'|`[^`]*`|\"[^\"]*\"|\[[^\]]*\]|\w+", sql))
+    by_name = {table["name"].lower(): table for table in tables}
+    used = {}
+    for number, match in enumerate(matches):
+        token = match.group()
+        word = token.strip("`\"[]")
+        quoted = token != word
+        if token.startswith("'") or (not quoted and word.lower() in SQL_WORDS) or word.lower() not in by_name:
+            continue
+        table = by_name[word.lower()]
+        aliases = used.setdefault(table["name"], (table, []))[1]
+        if sql[match.end():match.end() + 1] == ".":  # items.city: tablo adı sütunu niteliyor, ardından alias gelmez
+            continue
+        following = [item.group() for item in matches[number + 1:number + 3]]
+        if following and following[0].lower() == "as":
+            following = following[1:]
+        if following and following[0].isidentifier() and following[0].lower() not in SQL_WORDS \
+                and following[0].lower() not in by_name and following[0] not in aliases:
+            aliases.append(following[0])
+    return list(used.values())
 
 
 def run_sql(sql, context):
@@ -63,12 +118,6 @@ def run_sql(sql, context):
 def sql_key(sql):
     """Cache'in ve tekrar guardrail'inin key'i: boşlukları sadeleştirilmiş SQL metni."""
     return " ".join(sql.split())
-
-
-def remember_mistake(sql, note, context):
-    """Sorudaki ilk hata (pre-check notu, SQL hatası ya da boş sonuç); soru ok biterse database memory'ye yazılır."""
-    if context.first_mistake is None:
-        context.first_mistake = {"sql": sql, "note": note}
 
 
 def format_result(result):

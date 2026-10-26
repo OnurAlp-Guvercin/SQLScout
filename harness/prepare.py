@@ -1,5 +1,5 @@
-"""Adım 1: başlangıç bağlamı. Şemayı, BIRD sütun açıklamalarını, foreign key'leri, column profile'ları, database
-memory'yi, evidence'ı ve soruyu birleştirir.
+"""Adım 1: başlangıç bağlamı. Şemayı, BIRD sütun açıklamalarını, foreign key'leri, column profile'ları,
+evidence'ı ve soruyu birleştirir.
 Metin sınırı aşarsa soruya gereken tabloları bir LLM seçer (select_tables; schema linking, MAC-SQL'in Selector'ı
 gibi), diğerleri tek satıra iner. Model şemayı yeniden yazmaz, yalnızca tablo adı seçer: olmayan sütun uyduramaz.
 Denemek için: python -m harness.prepare <sqlite yolu> "soru" ["evidence"]"""
@@ -14,7 +14,6 @@ import config
 from agent import llm, prompts
 from db import sqlite_schema
 from db.sqlite_schema import show_name
-from harness import memory
 
 profiles_lock = threading.Lock()
 
@@ -25,9 +24,8 @@ def build_context(question, evidence, db_path):
     tables = sqlite_schema.schema(db_path)
     profiles = load_profiles(db_path, tables)
     descriptions = sqlite_schema.descriptions(db_path)
-    corrections = past_corrections(db_path, question)  # database memory
 
-    context = render(tables, profiles, descriptions, corrections, question, evidence)
+    context = render(tables, profiles, descriptions, question, evidence)
     if llm.count_tokens(context) <= config.CONTEXT_MAX_TOKENS:
         return context
     blocks = {}
@@ -35,21 +33,11 @@ def build_context(question, evidence, db_path):
         blocks[table["name"]] = "\n".join(full_table(table, profiles[table["name"]], descriptions))
     needed = select_tables(question, evidence, blocks)
     shortened = {table["name"] for table in tables if table["name"] not in needed}
-    return render(tables, profiles, descriptions, corrections, question, evidence, shortened)
+    return render(tables, profiles, descriptions, question, evidence, shortened)
 
 
-def past_corrections(db_path, question):
-    """Database memory kayıtları bağlamda ayrı bir bölümde, her biri tek satır olarak gösterilir."""
-    lines = []
-    for record in memory.read(db_path, question):
-        note = record["note"].splitlines()[-1]
-        lines.append(f"- Earlier question \"{record['question']}\": {record['wrong_sql']} → {note} "
-                     f"Corrected: {record['answer_sql']}")
-    return lines
-
-
-def render(tables, profiles, descriptions, corrections, question, evidence, shortened=()):
-    """Parçaları tek metne dizer: tablolar, foreign key'ler, memory, evidence, soru (en sonda).
+def render(tables, profiles, descriptions, question, evidence, shortened=()):
+    """Parçaları tek metne dizer: tablolar, foreign key'ler, evidence, soru (en sonda).
     shortened'daki tablolar tek satır (short_table), diğerleri tam (full_table) yazılır."""
     lines = ["Database schema (SQLite):", ""]
     foreign_keys = []
@@ -65,8 +53,6 @@ def render(tables, profiles, descriptions, corrections, question, evidence, shor
                                 f"{show_name(fk['ref_table'])}.{show_name(fk['ref_column'])}")
     if foreign_keys:
         lines += ["Foreign keys:"] + foreign_keys + [""]
-    if corrections:
-        lines += ["Mistakes made and corrected earlier on this database:"] + corrections + [""]
     if evidence:
         lines.append(f"Evidence: {evidence}")
     lines.append(f"Question: {question}")

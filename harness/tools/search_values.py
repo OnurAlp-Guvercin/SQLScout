@@ -16,12 +16,40 @@ index_lock = threading.Lock()
 
 
 def run(query, context):
-    """Return: agent'a gidecek metin. Bir şey bulunduysa bir kopyası search notes'a yazılır (candidate'ler için)."""
+    """Agent search_values(query) çağırınca run_steps bunu çağırır (adım 3).
+    1. find_values: query'yi veritabanındaki bütün metin değerleri arasında arar; içinde geçen ya da yazılışı
+       benzeyen en fazla 5 değeri (tablo, sütun, değer) bulur.
+    2. show_values: bulunanları agent'ın okuyacağı metne çevirir.
+    3. Bir şey bulunduysa metnin bir kopyası context.search_notes'a eklenir; candidate'ler (adım 7) agent'ın konuşmasını
+       görmediği için bulunan değeri buradan öğrenir.
+    4. Hiçbir değer bulunmadıysa ve aranan bir sütun adına benziyorsa o sütunlar söylenir: küçük modeller sütun
+       adlarını da bu tool'la arar.
+    Return: agent'a gidecek metin, ör. "Values similar to 'super strength':\n- superpower.power_name = 'Super Strength'"
+    ya da "No values similar to '...' were found."."""
     matches = find_values(context.db_path, query)
     text = show_values(query, matches)
     if matches:
         context.search_notes.append(text)
+        return text
+    columns = similar_columns(context.db_path, query)
+    if columns:
+        text += (" search_values finds values stored in the database, not column names. Columns with a similar "
+                 "name: " + ", ".join(columns) + ".")
     return text
+
+
+def similar_columns(db_path, query):
+    """Adı aranan kelimeyi içeren, onun içinde geçen ya da ona yazılışça benzeyen sütunlar: ["tablo.sütun", ...].
+    Ör. "CumsumConsumption" → ["yearmonth.Consumption"]."""
+    lowered = query.lower().replace(" ", "_")
+    found = []
+    for table in sqlite_schema.schema(db_path):
+        for column in table["columns"]:
+            name = column["name"].lower()
+            inside = min(len(name), len(lowered)) >= 4 and (name in lowered or lowered in name)
+            if inside or difflib.SequenceMatcher(None, lowered, name).ratio() >= config.SEARCH_SIMILARITY:
+                found.append(f"{show_name(table['name'])}.{show_name(column['name'])}")
+    return found[:config.SEARCH_RESULTS]
 
 
 def find_values(db_path, text):

@@ -20,14 +20,16 @@ import config
 def chat(messages, temperature=None, tools=None, seed=None, model=None):
     """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa policy modeli.
     Return: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
-    body = request_body(messages, temperature, tools, seed, model or config.POLICY_MODEL)
+    model = model or config.POLICY_MODEL
+    body = request_body(messages, temperature, tools, seed, model)
+    url = config.TEACHER_URL if model == config.TEACHER_MODEL else config.LLM_URL
     headers = {"Content-Type": "application/json"}
     key = api_key()
-    if key:
+    if key and url.startswith("https://"):  # key yalnızca API'ye gider; yerel sunucu istemez
         headers["Authorization"] = f"Bearer {key}"
 
     start = time.monotonic()
-    answer = post(config.LLM_URL + "/chat/completions", body, headers)
+    answer = post(url + "/chat/completions", body, headers)
     if "error" in answer or not answer.get("choices"):
         raise RuntimeError(f"Model API hatası: {json.dumps(answer)[:500]}")
 
@@ -56,8 +58,9 @@ def request_body(messages, temperature, tools, seed, model):
         "chat_template_kwargs": {"enable_thinking": False},
         "usage": {"include": True},  # OpenRouter request'in maliyetini de return eder
     }
-    if config.POLICY_PROVIDER and model == config.POLICY_MODEL:
-        body["provider"] = {"order": [config.POLICY_PROVIDER], "allow_fallbacks": False}
+    providers = config.TEACHER_PROVIDERS if model == config.TEACHER_MODEL else config.POLICY_PROVIDERS
+    if providers:
+        body["provider"] = {"order": providers, "allow_fallbacks": False}
     if tools:
         body["tools"] = tools
     if seed is not None and config.SEND_SEED:

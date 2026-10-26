@@ -12,10 +12,9 @@ from tests.fakes import sql_reply
 
 @pytest.fixture(autouse=True)
 def files_in_tmp(tmp_path, monkeypatch):
-    """Testler gerçek data/prepared/, experience/log.jsonl ve experience/memory/ dosyalarına yazmasın."""
+    """Testler gerçek data/prepared/ ve experience/log.jsonl dosyalarına yazmasın."""
     monkeypatch.setattr(config, "PREPARED_DIR", tmp_path / "prepared")
     monkeypatch.setattr(config, "EXPERIENCE_LOG", tmp_path / "log.jsonl")
-    monkeypatch.setattr(config, "MEMORY_DIR", tmp_path / "memory")
 
 
 @pytest.fixture

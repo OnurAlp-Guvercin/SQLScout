@@ -87,7 +87,7 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','Kullanıcı sorusu','ör. “2025’te en çok iade edilen kategori hangisi?”',shape='pill',tsize=18)
-node(822,350,324,124,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları · database memory · 16K aşılırsa policy modeli tablo seçer',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları · 16K aşılırsa policy modeli tablo seçer',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'soru','k')
 arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'başlangıç bağlamı','b')
 
@@ -111,7 +111,7 @@ arrow([(1226,630),(1150,630)],'b'); label(1186,630,'cevap','b')
 arrow([(390,584),(818,584)],'k')
 arrow([(822,630),(394,630)],'b'); label(606,630,'değerin yazılışı · kullanıcının cevabı','b')
 
-node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN)<br>3. Daha önce çalıştı mı (cache)?',tsize=18)
+node(822,700,324,140,'harness','Pre-check (sırayla)','1. Salt okuma mı?<br>2. Sözdizimi, tablo, sütun (EXPLAIN); hata notu tabloların gerçek sütunlarını gösterir<br>3. Daha önce çalıştı mı (cache)?',tsize=18)
 arrow([(390,724),(818,724)],'k'); label(606,724,'execute_sql isteği','k')
 arrow([(822,812),(394,812)],'b'); label(606,812,'kontrol hatası ya da cache\'ten sonuç','b')
 
@@ -124,7 +124,7 @@ node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boşsa: değerin 
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
-node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (prompt: soru + evidence + kullanıcı cevapları + şema + search notes; agent\'ın SQL\'i yok) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
+node(822,1032,324,150,'harness','Candidate generation & selection','Agent\'ın SQL\'i + 2 ek candidate (agent\'ın SQL\'ini görmeden) · consensus yoksa toplam 8 · en kalabalık grup',tsize=18)
 arrow([(390,1080),(818,1080)],'k'); label(606,1080,'submit','k')
 arrow([(822,1130),(394,1130)],'b'); label(606,1130,'SQL çalışmıyor → hata','b')
 
@@ -138,20 +138,15 @@ arrow([(1146,1242),(1570,1242)],'t',w=3); label(1360,1242,'low ya da 2. kez medi
 
 node(1574,1130,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
 
-node(822,1340,324,112,'decision','Final check','Çalıştırılmadıysa çalıştırır · salt okuma + var olan tablo/sütun · boşsa: agent bunu görmüş müydü?',shape='hex',tsize=18)
+node(822,1340,324,112,'decision','Final check','Gerçekten çalıştı mı · salt okuma + var olan tablo/sütun · boşsa: agent bunu görmüş müydü?',shape='hex',tsize=18)
 arrow([(984,1290),(984,1336)],'p'); label(1040,1313,'high','p')
 arrow([(822,1396),(394,1396)],'p'); label(606,1396,'geçmedi → çalışmaya devam','p')
 
 node(1222,1348,300,100,'io','Cevap','<i>ok</i> · geçmediyse <i>low_confidence</i><br>çalışan SQL yoksa <i>no_answer</i>',shape='pill',tsize=20)
 arrow([(1146,1396),(1218,1396)],'p'); label(1184,1370,'geçti','p')
-arrow([(1736,1240),(1736,1480),(984,1480),(984,1456)],'t',w=3)
-label(1530,1480,'teacher\'ın cevabı da final check\'ten geçer','t')
+arrow([(1574,1172),(1150,1172)],"t",w=3)
+label(1362,1195,'teacher\'ın submit\'i → kendi candidate\'leri → gate','t')
 
-# --- database memory ---
-node(822,1540,324,80,'harness','Database memory','hata → düzeltme kaydı · gold yok',dashed=True,tsize=18)
-# database memory: soru ok bitince cevaptan yazılır, sonraki soru adım 1'de okur
-arrow([(1300,1448),(1300,1580),(1150,1580)],'g',dashed=True); label(1300,1525,'ok + yolda hata','g',dashed=True)
-arrow([(984,1620),(984,1650),(1938,1650),(1938,440),(1150,440)],'g',dashed=True); label(1440,440,'sonraki sorunun adım 1\'i','g',dashed=True)
 
 # experience log: evaluate.py her soru puanlandıktan sonra bütün konuşmayı yazar; agent ileride bununla eğitilir
 node(1600,1500,270,100,'offline','Experience log','her soru: bütün konuşma, cevap, doğru mu',shape='cyl',tsize=18)

@@ -1,13 +1,10 @@
-"""B4 testleri: teacher'a handoff (aşama 22), ask_user (aşama 23), database memory (aşama 25)."""
-
-import json
+"""Yardım testleri: teacher'a handoff ve ask_user."""
 
 import config
 from agent import loop
 from agent.context import Context
-from harness import memory
 from harness.tools import submit
-from tests.fakes import call_reply, execute_reply, submit_reply, text_reply, observation
+from tests.fakes import call_reply, sql_reply, submit_reply, text_reply, observation
 
 EMPTY_SQL = "SELECT id FROM items WHERE city = 'Paris'"
 COUNT_SQL = "SELECT COUNT(*) FROM items"
@@ -25,12 +22,14 @@ def test_teacher_continues_after_forced_handoff(db, fake_model, monkeypatch):
     assert answer["steps"][-1]["by"] == "teacher"
 
 
-def test_teacher_answer_failing_final_check_is_low_confidence(db, fake_model, monkeypatch):
+def test_teacher_submit_goes_through_the_gate(db, fake_model):
+    """Teacher'ın submit'i de candidate'lerden geçer: candidate'ler başka bir sonuçta uzlaşırsa o sonuç seçilir."""
     replies, _ = fake_model
     replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + [submit_reply(EMPTY_SQL)]
-    answer = loop.answer_question("Which items are in Paris?", "", db)
+    replies += [sql_reply(COUNT_SQL)] * (config.TOTAL_CANDIDATES - 1)
+    answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == "budget bitti"
-    assert answer["label"] == "low_confidence" and answer["answered_by"] == "teacher" and answer["sql"] == EMPTY_SQL
+    assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
 
 
 def test_ask_user_in_terminal_and_limit(db, fake_model, monkeypatch):
@@ -52,35 +51,3 @@ def test_clarifications_go_into_candidate_prompt(db):
     context.messages = [{}, {"content": "schema and question"}]
     context.clarifications.append({"question": "Count or sum?", "answer": "count"})
     assert submit.candidate_prompt(context).endswith("The user clarified the question:\n- Q: Count or sum? A: count")
-
-
-def test_corrected_mistake_is_remembered_for_similar_question(db, fake_model):
-    replies, seen = fake_model
-    replies += [execute_reply(EMPTY_SQL), submit_reply(COUNT_SQL)]  # boş sonuç, sonra ok
-    loop.answer_question("How many items are there in Paris?", "", db)
-    replies.append(submit_reply(COUNT_SQL))
-    loop.answer_question("How many items in Paris?", "", db)
-    context = seen[-1][1]["content"]
-    assert "Mistakes made and corrected earlier on this database:" in context
-    assert f"{EMPTY_SQL} → No rows: the result is empty." in context
-    assert f"Corrected: {COUNT_SQL}" in context
-
-
-def test_memory_prefers_rare_shared_words(db, monkeypatch):
-    """TF-IDF: her kayıtta geçen "how many" az sayılır; sorunun asıl konusunu ("superpower") paylaşan kayıt öne çıkar."""
-    monkeypatch.setattr(config, "MEMORY_RECORDS", 1)
-    words = ["tall", "short", "female", "strong", "fast", "good", "evil", "rich", "young", "old"]
-    questions = [f"How many heroes are {word}?" for word in words] + ["List the superpower names."]
-    config.MEMORY_DIR.mkdir(parents=True)
-    with open(memory.memory_path(db), "w") as file:
-        for question in questions:
-            file.write(json.dumps({"question": question, "wrong_sql": "", "note": "", "answer_sql": ""}) + "\n")
-    assert memory.read(db, "How many heroes have the superpower Flight?")[0]["question"] == "List the superpower names."
-
-
-def test_mistake_with_unchanged_sql_is_not_remembered(db, fake_model):
-    replies, _ = fake_model
-    replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL)]  # boş sonucu gördü ve aynı SQL'i kabul etti
-    answer = loop.answer_question("Which items are in Paris?", "", db)
-    assert answer["label"] == "ok" and answer["sql"] == EMPTY_SQL
-    assert not config.MEMORY_DIR.exists()

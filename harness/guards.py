@@ -6,7 +6,7 @@ import uuid
 
 import config
 from agent import llm
-from harness.tools import execute_sql
+from harness.tools import execute_sql, submit
 
 SHORTENED = "[Old result, shortened] "
 
@@ -16,7 +16,8 @@ def read_tool_call(reply, tools):
     hata agent'a gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
-        step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
+        step["error"] = ("Rejected: your reply was not a tool call. Do not work out the answer in text: call exactly "
+                         "one of the tools, e.g. execute_sql to compute it or submit when you have the query.")
         return step
 
     call = reply["tool_calls"][0]
@@ -31,6 +32,7 @@ def read_tool_call(reply, tools):
             schema = tool["function"]["parameters"]
     if schema is None:
         names = ", ".join(tool["function"]["name"] for tool in tools)
+        step["arguments"] = "{}"  # bozuk olabilir: konuşmaya konmaz (aşağıdaki nota bakın)
         step["error"] = f"Rejected: there is no tool named '{step['tool']}'. Available tools: {names}."
         return step
 
@@ -53,19 +55,23 @@ def read_tool_call(reply, tools):
 
 
 def is_empty(value):
-    return value is None or (isinstance(value, str) and not value.strip())
+    """Argument metin değilse ya da boşsa (ör. {"sql": 123}) tool onu kullanamaz."""
+    return not isinstance(value, str) or not value.strip()
 
 
 def earlier_calls(step, context):
-    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
-    boşlukları önemsenmez. submit hiç tekrar sayılmaz."""
-    if step["tool"] == "submit":
+    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de ve
+    submit'te SQL'in boşlukları önemsenmez. Reddedilen çağrılar hiç tekrar sayılmaz. submit yalnızca önceki submit
+    çalışmadığı için geri döndüyse tekrar sayılır: medium note'tan sonra aynı SQL'i yeniden göndermek geçerlidir."""
+    if step.get("error"):
         return []
     same = []
     for old in context.steps:
         if old["tool"] != step["tool"] or not old["args"]:
             continue
-        if step["tool"] == "execute_sql":
+        if step["tool"] == "submit" and not old["result"].startswith(submit.REJECTED):
+            continue
+        if step["tool"] in ("execute_sql", "submit"):
             match = execute_sql.sql_key(old["args"]["sql"]) == execute_sql.sql_key(step["args"]["sql"])
         else:
             match = old["args"] == step["args"]

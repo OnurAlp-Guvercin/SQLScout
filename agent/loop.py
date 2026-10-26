@@ -3,7 +3,7 @@ verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/
 (adım 3), execute_sql (adım 4–6), submit (adım 7–9).
 Agent takılırsa (budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci medium, final check 2 kez geçmedi)
 harness işi teacher'a verir (adım 10): teacher aynı döngüyle, yarım budget'la devam eder.
-Soru bitince database memory ve experience log yazılır."""
+Soru bitince experience log yazılır."""
 
 import json
 import threading
@@ -13,7 +13,7 @@ from pathlib import Path
 import config
 from agent import llm, prompts
 from agent.context import Context
-from harness import guards, memory, prepare
+from harness import guards, prepare
 from harness.tools import ask_user, execute_sql, search_values, submit
 
 log_lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır; log satırları birbirine karışmasın
@@ -33,7 +33,6 @@ def answer_question(question, evidence, db_path, seed=None, tags=None, score=Non
         result = run_steps(context)
     if result is None:
         result = fallback_answer(context)
-    memory.write(context, result)
     correct = None if score is None else result["sql"] is not None and score(result["sql"])
     write_experience(context, result, correct, tags or {})
     return result
@@ -63,15 +62,16 @@ def run_steps(context):
         context.calls_left -= 1
         context.calls += 1
         earlier = guards.earlier_calls(step, context)
+        by = "teacher" if context.teacher else "agent"  # teacher, agent'ın denediğini bir kez görmek isterse takılmış sayılmaz
 
         if step["error"]:  # tool call okunamadı: reddedilir, hata agent'a gider
             result = step["error"]
-        elif len(earlier) >= config.MAX_REPEATS:  # aynı çağrının 3. tekrarı: agent takıldı
+        elif len([old for old in earlier if old["by"] == by]) >= config.MAX_REPEATS:  # kendi 3. tekrarı: takıldı
             context.add(step, "Handoff: the same call was repeated too many times.")
             if not context.teacher:
                 context.handoff_reason = "aynı çağrı 3 kez tekrarlandı"
             return None
-        elif earlier:  # aynı çağrı (submit hariç): çalıştırılmaz, önceki sonuç agent'a gider
+        elif earlier:  # aynı çağrı: çalıştırılmaz, önceki sonuç agent'a gider
             result = guards.repeat_note(earlier)
         elif step["tool"] == "search_values":
             result = search_values.run(step["args"]["query"], context)  # adım 3
@@ -79,20 +79,20 @@ def run_steps(context):
             result = ask_user.run(step["args"]["question"], context)  # adım 3
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
-        elif context.teacher:  # teacher'ın submit'i candidate'lere gitmez, doğrudan final check'e gider
-            return teacher_submit(step, context)
-        else:
+        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer
             outcome = submit.run(step["args"]["sql"], context)  # adım 7–9
             if outcome["done"]:
                 context.add(step, "Accepted.")
-                return context.answer(context.selected_sql, "ok")
+                return context.answer(context.selected_sql, "ok", "teacher" if context.teacher else "agent")
             if outcome["handoff"]:
-                context.handoff_reason = outcome["handoff"]
+                if not context.teacher:
+                    context.handoff_reason = outcome["handoff"]
                 context.add(step, f"Handoff: {outcome['handoff']}")
                 return None
             result = outcome["note"]  # medium note ya da final check notu → adım 2
 
         context.add(step, result)
+        context.stuck = bool(step["error"] or earlier)  # reddedildi ya da tekrarladı: sıradaki adım örneklenir
         if context.calls_left > 0:  # kalan budget yalnızca modele giden mesaja eklenir, adım kaydına değil
             note = f"\n[{context.calls_left} tool call(s) left."
             if context.calls_left <= config.BUDGET_WARNING:
@@ -105,9 +105,12 @@ def run_steps(context):
 
 
 def next_step(context):
-    """Konuşmanın şimdiye kadarki hâlini modele verir, cevabını tek bir tool call olarak okur."""
+    """Konuşmanın şimdiye kadarki hâlini modele verir, cevabını tek bir tool call olarak okur. Model normalde en olası
+    cevabı seçer (temperature 0); son çağrısı reddedildiyse ya da tekrarsa aynı girdiye yine aynı cevabı vereceği için
+    bu kez RETRY_TEMPERATURE ile örneklenir."""
     model = config.TEACHER_MODEL if context.teacher else config.POLICY_MODEL
-    reply = llm.chat(context.messages, tools=prompts.TOOLS, seed=context.seed, model=model)
+    temperature = config.RETRY_TEMPERATURE if context.stuck else None
+    reply = llm.chat(context.messages, temperature=temperature, tools=prompts.TOOLS, seed=context.seed, model=model)
     context.count_usage(reply)
     return guards.read_tool_call(reply, prompts.TOOLS)
 
@@ -117,19 +120,6 @@ def start_teacher(context):
     context.teacher = True
     note = prompts.TEACHER_TAKEOVER.format(reason=context.handoff_reason, budget=context.budget())
     context.messages.append({"role": "user", "content": note})
-
-
-def teacher_submit(step, context):
-    """Teacher'ın cevabı final check'ten geçerse ok. Geçmezse tekrar denenmez: SQL çalışıyorsa low_confidence ile
-    return edilir (ör. beklenmeyen boş sonuç), hiç çalışmıyorsa fallback answer."""
-    sql = step["args"]["sql"]
-    note = submit.final_check(sql, context)
-    context.add(step, note or "Accepted.")
-    if note is None:
-        return context.answer(sql, "ok", answered_by="teacher")
-    if submit.result_of(sql, context):
-        return context.answer(sql, "low_confidence", answered_by="teacher")
-    return fallback_answer(context)
 
 
 def fallback_answer(context):

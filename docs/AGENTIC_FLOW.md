@@ -17,7 +17,7 @@ Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, son
 | 🟥 Kırmızı | Gerçek veritabanı |
 | 🩵 Turkuaz | Teacher LLM |
 | 🟪 Mor | Harness kararı (confidence gate, final check) |
-| ⬜ Kesikli | Soru bittikten sonra: database memory, experience log, agent eğitimi (ileride) |
+| ⬜ Kesikli | Soru bittikten sonra: experience log, agent eğitimi (ileride) |
 | ⚪ Beyaz, yuvarlak | Sistemin dışı: kullanıcının sorusu, `ask_user`'ı cevaplayan kullanıcı ve dönen cevap |
 
 Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** karar sonucu, **turkuaz** handoff, **kesikli** soru bittikten sonra.
@@ -46,7 +46,6 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Clarification | Kullanıcının `ask_user` sorusuna verdiği cevap. Sorunun bir parçası sayılır |
 | Search notes | Search sonuçlarının, candidate prompt'u için ayrıca saklanan kopyası |
 | Medium note | Confidence gate medium çıkınca agent'a dönen not: en kalabalık iki candidate grubunun özeti |
-| Database memory | Bir veritabanında daha önce yapılmış ve düzeltilmiş hataların kaydı. Adım 1'de bağlama eklenir |
 | Result key | Bir sorgu sonucunu karşılaştırmak için kullanılan anahtar. Sonucun bütün satırları küme olarak alınır: satır sırası ve tekrar eden satırlar önemsiz, sütun sırası önemli (BIRD'ün resmi kuralı). Anahtarı aynı olan iki sonuç "aynı sonuç" sayılır |
 | Fallback answer | Hiçbir cevap kontrollerden geçmediğinde dönen en iyi cevap; `low_confidence` etiketi taşır |
 | Label | Dönen cevabın etiketi: `ok` (kontrollerden geçti), `low_confidence` (geçmedi ama bir cevap var), `no_answer` (çalışan hiçbir SQL yok) |
@@ -84,11 +83,9 @@ Harness agent'a şunları verir:
 - Soru ve varsa evidence.
 - Şema: tablolar, sütunlar, BIRD'ün sütun açıklamaları, foreign key'ler.
 - Column profile'ları. Metin sütunlarında en sık 10 değer (en fazla 10 farklı değeri olan sütunlarda, ör. `status`, bütün değerler); geri kalan değerleri agent gerekirse `search_values` ile bulur. Sayısal sütunlarda yalnızca en küçük ve en büyük değer.
-- Database memory: bu veritabanında daha önce yapılmış hatalar ve düzeltmeleri (soruya en çok benzeyen 3 kayıt).
 
 Bağlam en fazla 16K token olur. Taşarsa soruya gereken tabloları bir LLM seçer (schema linking): şema sığacak parçalara bölünür, model her parçadan gereken tabloların adlarını yazar, seçimler birleştirilir. Seçilmeyen tablolar tek satıra iner (yalnızca sütun adları ve tipleri). Model şemayı yeniden yazmaz, yalnızca tablo seçer; böylece olmayan bir sütun uyduramaz. BIRD dev ve Mini-Interact'te bağlam bu sınırı hiç aşmıyor (en büyüğü ~14K).
 
-Database memory örneği: önceki bir soruda agent `status = 'iade'` yazdı, sonuç boş geldi, sonra `'returned'` ile düzeltti. Bu hata ve düzeltmesi kaydedilir; yeni bir iade sorusunda agent bunu baştan görür.
 → 2
 
 ### 2. Agent ne yapacağına karar verir
@@ -99,17 +96,17 @@ Agent her turda tek bir tool call yapar:
 - Bir SQL'i denemek istiyorsa → `execute_sql` → 4
 - Cevaptan eminse → `submit` → 7
 
-Her observation'dan sonra agent buraya döner. Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa şimdi submit et" hatırlatması da eklenir. Budget biterse harness handoff'u zorlar → 10.
+Her observation'dan sonra agent buraya döner. Agent her adımda en olası cevabı seçer (temperature 0). Son çağrısı reddedildiyse ya da bir tekrarsa, aynı girdiye yine aynı cevabı vereceği için sıradaki adım örneklenir (temperature 0.7). Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa şimdi submit et" hatırlatması da eklenir. Budget biterse harness handoff'u zorlar → 10.
 
 **Guardrail'ler.** Küçük modeller bazı tipik hataları sık yapar; bunlar sistemi bozmasın diye harness her adımda üç basit kural uygular (DualSQL).
-1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 10. `submit` hariç: medium note'tan sonra aynı SQL'i yeniden göndermek geçerli bir seçimdir.
+1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 10. Yalnızca kendi tekrarları sayılır: teacher'ın agent'ın denediği bir çağrıyı yinelemesi onu takılmış saymaz. `submit` yalnızca çalışmayan bir SQL'i yeniden gönderirse tekrar sayılır; medium note'tan sonra aynı SQL'i yeniden göndermek geçerli bir seçimdir.
 2. **Uzun sonuç kırpılır:** Agent en fazla 20 satır görür, yanında toplam satır sayısı yazar.
 3. **Bağlam sıkıştırılır:** Konuşma 32K token'ı aşarsa en eski sonuçlar tek satırlık özete iner (ör. "Columns: name | 358 rows").
 
 ### 3. Bilgi toplama: `search_values` ve `ask_user`
 
 Agent bunları istediği an kullanır. Adım 1 zengin olduğu için çoğu soruda az gerekir.
-- **`search_values`:** Bir kelimenin veritabanında hangi sütunda, hangi değer olarak geçtiğini bulur; benzer yazılanlar dahil. Örnek: "Los Angles" → `city = 'Los Angeles'`.
+- **`search_values`:** Bir kelimenin veritabanında hangi sütunda, hangi değer olarak geçtiğini bulur; benzer yazılanlar dahil. Örnek: "Los Angles" → `city = 'Los Angeles'`. Hiçbir değer bulamazsa ve aranan kelime bir sütun adına benziyorsa o sütunları söyler; küçük modeller sütun adlarını da bu tool'la arıyor. Örnek: "Consumption" → `yearmonth.Consumption` sütunu.
 - **`ask_user`:** Soruyu yalnızca kullanıcı netleştirebiliyorsa kısa bir soru sorulur. Örnek: "adet mi, tutar mı?" → "adet". Soru başına en fazla 5 kez (agent ve teacher toplam).
 
 Arama her şeyi bulamaz: soruda "iade", veritabanında `'returned'` yazıyorsa eşleşmez. Bu durumda evidence çoğu zaman eşleşmeyi verir; vermezse agent kullanıcıya sorar ya da yanlış değerle boş sonuç alır; boş sonucun altındaki not onu değerin yazılışını `search_values` ile kontrol etmeye yönlendirir.
@@ -128,7 +125,7 @@ Agent denemek istediği SQL'i `execute_sql(sql="SELECT ...")` ile gönderir.
 
 Agent'ın SQL'leri, candidate'ler ve final check buradan geçer. Harness sırayla üç soru sorar:
 1. **Yazma mı yapıyor?** `SELECT` ya da `WITH` ile başlamıyorsa reddedilir. Örnek: `DELETE FROM orders`.
-2. **Bozuk mu?** `EXPLAIN` sorguyu çalıştırmadan yazım hatasını, olmayan tabloyu ve sütunu yakalar. Olmayan bir sütun başka bir tabloda varsa not bunu da söyler.
+2. **Bozuk mu?** `EXPLAIN` sorguyu çalıştırmadan yazım hatasını, olmayan tabloyu ve sütunu yakalar. Not, hatayı düzeltmek için gerekeni de söyler: olmayan sütun hangi tablolarda var, alias verilmiş bir tablo kendi adıyla yazıldıysa alias'ı ve sorgudaki tabloların gerçek sütunları; olmayan bir tablo yazıldıysa veritabanındaki tablolar. Örnek: `no such column: cc.client_id` → "client_id şu tablolarda var: client, disp. Sorgudaki tablolar ve sütunları: card (cc): card_id, disp_id, type, issued; ...".
 3. **Daha önce çalıştı mı (cache)?** Çalıştıysa yeniden çalıştırılmaz, saklanan sonuç kullanılır. Örnek: bir candidate agent'ın SQL'ini birebir yeniden yazar.
 
 1–2'de takılan sorgunun notu agent'a döner (→ 2).
@@ -146,7 +143,7 @@ Sorgu veritabanında salt okunur çalıştırılır (en fazla 30 saniye). Agent'
 **Neden:** Bir SQL'in hatasız çalışması doğru olduğunu göstermez. En sağlam sinyal, ayrı ayrı yazılmış SQL'lerin aynı sonucu vermesidir (consensus).
 
 - **Önce:** Submit edilen SQL çalışmıyorsa (pre-check'ten geçmiyor ya da hata veriyorsa) candidate üretilmez; hata agent'a döner (→ 2).
-- **Kim yazar:** Agent'ın SQL'i de bir candidate'tir. Diğerlerini aynı policy modeli tool'suz, tek seferde yazar. Prompt'ta adım 1 bağlamı, search notes ve clarification'lar var. Agent'ın SQL'i prompt'a konmaz; konursa model onu kopyalar.
+- **Kim yazar:** Agent'ın SQL'i de bir candidate'tir. Diğerlerini submit eden model (agent'ın submit'inde policy, teacher'ınkinde teacher) tool'suz, tek seferde yazar. Her candidate ayrı bir örnektir (temperature 0.8); agent temperature 0 ile çalıştığı için candidate'ler onun SQL'inin kopyası olmaz. Prompt'ta adım 1 bağlamı, search notes ve clarification'lar var. Agent'ın SQL'i prompt'a konmaz; konursa model onu kopyalar.
 - **Kaç tane (adaptive rule):** Önce 2 ek candidate. Hepsi agent'ın SQL'iyle aynı sonucu verirse durulur. Ayrışırlarsa toplam 8'e tamamlanır.
 - **Nasıl çalışır:** Her candidate adım 5–6'dan geçer. Daha önce çalışmış SQL cache'ten gelir. Candidate'ler budget'tan düşmez, sonuçları agent'a dönmez (tek istisna adım 8'deki medium note).
 - **Gruplama:** Result key'i aynı olanlar, yani gerçek sonucu aynı olanlar, bir gruptur. Hata veren candidate hiçbir gruba girmez.
@@ -165,7 +162,7 @@ Karar yalnızca consensus'a bakar: en kalabalık grupta kaç candidate var?
 
 Cevap dönmeden önceki son kontrol:
 - **Salt okuma mı, tablolar ve sütunlar var mı?** (adım 5)
-- **Gerçekten çalışıyor mu?** Çalıştırılmadıysa (ör. teacher'ın cevabı) harness şimdi çalıştırır; böylece dönen her cevap gerçekten çalıştırılmış olur. Hata veren cevap geçmez.
+- **Gerçekten çalışıyor mu?** Seçilen SQL gerçekten çalıştırılmış olmalı (adım 7'de çalıştı; sonuç cache'ten gelir); böylece dönen her cevap gerçekten çalıştırılmış olur. Hata veren cevap geçmez.
 - **Sonuç boşsa, agent bunu görmüş müydü?** Boş sonuç yalnızca agent bu SQL'i daha önce `execute_sql` ile çalıştırıp boş geldiğini gördüyse geçer. Görmediyse (ör. seçilen SQL bir candidate ise) geçmez.
 
 Geçti → **cevap döner ✔** (label `ok`). Geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 10.
@@ -175,7 +172,7 @@ Geçti → **cevap döner ✔** (label `ok`). Geçmedi → nedeni agent'a not ol
 Handoff'u harness yapar: budget bitti, aynı çağrı 3 kez tekrarlandı, confidence low, ikinci kez medium, final check 2 kez geçmedi.
 - Teacher sıfırdan başlamaz, agent'ın kaldığı yerden devam eder: bütün konuşmayı ve handoff'un nedenini görür.
 - Agent'ınkinin yarısı kadar yeni bir budget'la (5 tool call) ve aynı tool'larla çalışır (adım 2–6). `ask_user` için yalnızca sorunun kalan hakkını kullanır.
-- Teacher'ın `submit`'i candidate'lere gitmez, doğrudan final check'e gider. Geçerse `ok`. Geçmezse tekrar denenmez: SQL çalışıyorsa (ör. beklenmeyen boş sonuç) `low_confidence` ile döner, hiç çalışmıyorsa fallback answer döner. Teacher budget'ı içinde `submit` etmezse de fallback answer döner.
+- Teacher'ın `submit`'i de agent'ınki gibi candidate'lerden, confidence gate'ten ve final check'ten geçer (adım 7–9). Bu candidate'leri teacher'ın kendisi yazar; küçük modelin candidate'leri büyük modelin cevabını oylamaz. Böylece gate'in reddettiği bir cevap, teacher onu yeniden gönderdi diye kabul edilmez. Gate yine takılırsa (low, ikinci medium, final check 2 kez geçmedi) ya da teacher budget'ı içinde `submit` etmezse fallback answer döner.
 
 **Fallback answer** sırası: adım 7'nin en son seçtiği SQL → yoksa candidate'lerin consensus'u (model 8 tool'suz SQL yazar, en kalabalık grubun SQL'i) → yoksa en son hatasız çalışan SQL → yoksa cevap yok. İlk üçü `low_confidence`, sonuncusu `no_answer` etiketiyle döner. Çalışmayan bir SQL hiçbir zaman cevap olmaz.
 → Cevap ✔
@@ -191,8 +188,6 @@ Handoff'u harness yapar: budget bitti, aynı çağrı 3 kez tekrarlandı, confid
 1 → 2 → 4 → 5 → 6 → 2 → 7 → 8 (medium: 8 candidate'in 5'i adet sayıyor, 3'ü tutarı topluyor; medium note iki grubu gösterir) → 2 → 3 (`ask_user`: "adet mi, tutar mı?" → "adet") → 2 → 7 (clarification artık prompt'ta) → 8 (high: 7/8) → 9 → ✔
 
 ### Soru bittikten sonra
-
-**Database memory:** Cevap döndükten sonra, sorunun kendi konuşmasından yazılır. Soru `ok` ile bittiyse, yolda bir hata ya da boş sonuç olduysa ve cevap SQL'i o hatalı SQL'den farklıysa bir kayıt yazılır: soru, ilk hatalı SQL, aldığı not, cevap SQL'i. SQL değişmediyse kayıt bir düzeltme öğretmez. Gold kullanılmaz. `evaluate.py` her deneyi boş bir memory ile başlatır.
 
 **Experience log:** Her soru bitince, nereden çalıştırılırsa çalıştırılsın (`run.py`, `evaluate.py` ya da kullanımdaki bir uygulama), bir satır yazılır: agent'ın (handoff olduysa teacher'ın da) gördüğü konuşmanın tamamı, cevap ve label. Değerlendirmede cevabın doğru olup olmadığı da yazılır (`split = dev`); kullanımda doğru SQL olmadığı için bu alan boş kalır (`split = use`), orada eğitim sinyali teacher'ın çözümleri, label ve kullanıcının cevaplarıdır. Kayıtlar birikir, hiç silinmez.
 
@@ -211,14 +206,13 @@ Handoff'u harness yapar: budget bitti, aynı çağrı 3 kez tekrarlandı, confid
 | Belirsizlik sinyali candidate ayrışmasıdır (medium note) | Harness'ta LLM yok, belirsizliği kendisi anlayamaz. Ayrışan candidate grupları ölçülebilir bir işarettir; karar agent'ındır | SIRIUS-SQL, PlanPool |
 | Teacher agent'ın kaldığı yerden devam eder | Agent'ın bulduğu bilgi boşa gitmez; handoff kayıtları doğrudan eğitim verisi olur | OLIVE, OVCSD |
 | Agent harness içinde eğitilir | Harness dışında eğitilen model, harness'ta kullanıldığında 30.4'ten 9.6'ya düşüyor | HarnessSQL |
-| Database memory gold kullanmaz | Değerlendirme cevapları sisteme sızmaz | — |
 | Sabit eşikler ve yalnızca consensus kuralı | Basit ve açıklanabilir; ayrı bir verifier modeli gerekmez | What Predicts Correctness, SIRIUS-SQL |
 
 ## Uygulama sırası
 
 Sistem küçük, numaralı aşamalarla kuruldu; her aşama tek bir parça ekledi ve testle denendi. Liste [KOD_YAPISI.md](KOD_YAPISI.md) "Yazım sırası" bölümünde.
 
-1. **Phase 1, SQLite + BIRD:** temel (veritabanı, puanlama, başlangıç bağlamı), ilk çalışan agent, trial loop (guardrail'ler, `search_values`), cevabı doğrulama (final check, candidate'ler, confidence gate, medium note), yardım ve hafıza (handoff, `ask_user`, database memory).
+1. **Phase 1, SQLite + BIRD:** temel (veritabanı, puanlama, başlangıç bağlamı), ilk çalışan agent, trial loop (guardrail'ler, `search_values`), cevabı doğrulama (final check, candidate'ler, confidence gate, medium note), yardım (handoff, `ask_user`).
 2. **Phase 2, Mini-Interact:** bilerek belirsiz bırakılmış sorularda `ask_user`.
 3. **Yerel modeller:** Policy ve teacher yerelde çalışır.
 4. **Agent eğitimi (ileride):** experience log'la SFT → on-policy distillation → RL.
@@ -255,9 +249,8 @@ Yalnızca bu tasarımı doğrudan şekillendiren çalışmalar. Tam tarama [ARAS
 - DualSQL ([2609.18135](https://arxiv.org/abs/2609.18135)): guardrail'ler (aynı çağrının tekrarı, format hatası).
 - MAC-SQL ([2312.11242](https://arxiv.org/abs/2312.11242)): şema uzunsa soruya gereken tabloları bir LLM'in seçmesi (adım 1).
 
-**Handoff ve memory**
+**Handoff**
 - OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) ve OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): teacher'ın agent'ın kaldığı yerden devam etmesi (adım 10); on-policy distillation.
-- Measuring Crystallization in Text-to-SQL ([2608.07213](https://arxiv.org/abs/2608.07213)): düzeltmelerin database memory'ye yazılması (adım 1).
 
 **Değerlendirme**
 - BIRD ([2305.03111](https://arxiv.org/abs/2305.03111)): ana benchmark, evidence ve resmi sonuç karşılaştırma kuralı.

@@ -1,5 +1,5 @@
 """Sonuç dosyalarının özeti. evaluate.py her deneyin sonunda summary'yi yazdırır. Birden çok dosya verilince
-(ör. seed'ler) her dosya için tek satırlık bir tablo yazar: python report.py results/asama29_*.jsonl"""
+(ör. seed'ler) her dosya için tek satırlık bir tablo yazar: python report.py results/<deney>_*.jsonl"""
 
 import json
 import sys

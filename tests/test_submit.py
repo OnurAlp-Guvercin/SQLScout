@@ -45,7 +45,7 @@ def test_extract_sql_without_block():
 def test_write_sql_sends_system_prompt_and_context(monkeypatch):
     sent = {}
 
-    def fake_chat(messages, temperature=None, seed=None):
+    def fake_chat(messages, temperature=None, seed=None, model=None):
         sent["messages"] = messages
         sent["seed"] = seed
         return {"text": "```sql\nSELECT 1\n```", "prompt_tokens": 10, "completion_tokens": 5}

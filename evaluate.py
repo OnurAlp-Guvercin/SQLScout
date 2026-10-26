@@ -7,7 +7,6 @@ Kullanım: python evaluate.py --name <deney> --seed 0 [--dataset bird|mini_inter
 import argparse
 import json
 import random
-import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -103,9 +102,6 @@ def main():
 
     questions = load_questions() if args.dataset == "bird" else mini_interact.load_questions()
     questions = sample(questions, args.limit)
-    # Her deney ve seed boş bir database memory ile başlar.
-    config.MEMORY_DIR = config.MEMORY_DIR / f"{args.name}_seed{args.seed}"
-    shutil.rmtree(config.MEMORY_DIR, ignore_errors=True)
     config.RESULTS_DIR.mkdir(exist_ok=True)
     out_path = config.RESULTS_DIR / f"{args.name}_seed{args.seed}.jsonl"
 

@@ -5,7 +5,7 @@ import json
 import pytest
 
 import config
-from agent import loop
+from agent import llm, loop
 from tests.fakes import call_reply, execute_reply, sql_reply, submit_reply, text_reply, observation
 
 
@@ -62,7 +62,7 @@ def test_execute_sql_error_and_empty_result_go_back_to_agent(db, fake_model):
                 execute_reply("SELECT id FROM items WHERE city = 'Paris'"),
                 submit_reply("SELECT id FROM items WHERE city = 'Boston'")]
     answer = loop.answer_question("Which items are in Boston?", "", db)
-    assert observation(seen[1][-1]) == "Rejected before running: no such column: town"  # pre-check yakaladı
+    assert observation(seen[1][-1]).startswith("Rejected before running: no such column: town. ")  # pre-check yakaladı
     assert answer["executions"] == 2  # ilk SQL pre-check'te kaldı; ikincisi ve submit edilen çalıştı
     assert observation(seen[2][-1]).startswith("Columns: id\nNo rows: the result is empty. If the query filters")
     assert answer["label"] == "ok"  # submit edilen SQL final check'te çalıştırıldı (2. gerçek çalıştırma)
@@ -133,17 +133,6 @@ def test_final_check_accepts_empty_result_the_agent_already_saw(db, fake_model):
     assert loop.answer_question("Which items are in Paris?", "", db)["label"] == "ok"
 
 
-def test_final_check_catches_broken_sql_that_never_ran(db, fake_model):
-    """Teacher'ın submit'i candidate'lere gitmez; final check çalışmayan SQL'i yakalar ve bu SQL cevap olmaz:
-    fallback answer'a gidilir (burada sahte candidate'ler de aynı bozuk SQL'i yazdığı için cevap yok)."""
-    replies, _ = fake_model
-    replies += [text_reply("I am not sure.")] * config.MAX_TOOL_CALLS + [submit_reply("SELECT town FROM items")]
-    answer = loop.answer_question("How many items?", "", db)
-    assert answer["steps"][-1]["result"] == "Final check failed: Rejected before running: no such column: town"
-    assert answer["label"] == "no_answer" and answer["sql"] is None
-    assert answer["executions"] == 0  # pre-check'te kaldı, hiç çalışmadı
-
-
 def test_candidates_agree_high(db, fake_model, monkeypatch):
     replies, seen = fake_model
     replies += [call_reply("search_values", {"query": "Bostn"}),
@@ -191,7 +180,8 @@ def test_submitted_sql_that_does_not_run_goes_back_without_candidates(db, fake_m
     replies, seen = fake_model
     replies += [submit_reply("SELECT town FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
     answer = loop.answer_question("How many items?", "", db)
-    assert observation(seen[1][-1]) == "Submit rejected: your query does not run: Rejected before running: no such column: town"
+    assert observation(seen[1][-1]).startswith(
+        "Submit rejected: your query does not run: Rejected before running: no such column: town. ")
     assert answer["label"] == "ok" and answer["candidates"] == 2  # yalnızca ikinci submit candidate üretti
 
 
@@ -217,3 +207,29 @@ def test_third_repeat_of_the_same_call_hands_over(db, fake_model):
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == "aynı çağrı 3 kez tekrarlandı"
     assert answer["steps"][config.MAX_REPEATS]["result"] == "Handoff: the same call was repeated too many times."
+
+
+def test_teacher_repeating_the_agents_call_is_not_stuck(db, fake_model):
+    replies, _ = fake_model
+    replies += [execute_reply("SELECT COUNT(*) FROM items")] * (config.MAX_REPEATS + 1)  # agent takıldı
+    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]  # teacher
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "ok" and answer["answered_by"] == "teacher"
+    assert answer["steps"][-2]["result"].startswith("Not run again")  # teacher önceki sonucu gördü, devam etti
+
+
+def test_stuck_agent_samples_its_next_step(db, fake_model, monkeypatch):
+    replies, _ = fake_model
+    replies += [text_reply("hmm"), execute_reply("SELECT 1"), execute_reply("SELECT 1"), submit_reply("SELECT 1")]
+    temperatures = []
+    fake = llm.chat
+
+    def recording(messages, tools=None, seed=None, temperature=None, model=None):
+        if tools:  # yalnızca agent'ın adımları; candidate'ler kendi temperature'ıyla yazılır
+            temperatures.append(temperature)
+        return fake(messages, tools=tools, seed=seed, temperature=temperature, model=model)
+
+    monkeypatch.setattr(llm, "chat", recording)
+    loop.answer_question("One?", "", db)
+    retry = config.RETRY_TEMPERATURE
+    assert temperatures == [None, retry, None, retry]  # reddedilen ve tekrarlanan çağrıdan sonra örneklendi

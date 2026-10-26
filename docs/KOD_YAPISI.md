@@ -18,17 +18,16 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 | Dosya | Akıştaki yeri | Ne yapar |
 |---|---|---|
-| `agent/loop.py` | Adım 2, 10 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → memory. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider. `next_step`: modelden sıradaki tool call. Handoff: `start_teacher`, `teacher_submit`, `fallback_answer` (adım 7'nin seçtiği SQL → candidate consensus'u → en son çalışan SQL). `write_experience`: her soru bitince experience log |
+| `agent/loop.py` | Adım 2, 10 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → experience log. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider. `next_step`: modelden sıradaki tool call. Handoff: `start_teacher`, `fallback_answer` (adım 7'nin seçtiği SQL → candidate consensus'u → en son çalışan SQL). `write_experience`: her soru bitince experience log |
 | `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, candidate, tablo seçimi, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
-| `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Yerel `mlx_lm.server` ya da OpenRouter; ikisi de OpenAI biçimi, adres `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
+| `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Policy yerel `mlx_lm.server`'a, teacher OpenRouter'a gider (`LLM_URL`, `TEACHER_URL`); ikisi de OpenAI biçimi, adresler `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
-| `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, database memory, evidence, soru). Bağlam 16K'yı aşarsa `select_tables`: soruya gereken tabloları LLM seçer. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
-| `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`); bulunanların kopyası search notes'a yazılır |
+| `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). Bağlam 16K'yı aşarsa `select_tables`: soruya gereken tabloları LLM seçer. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
+| `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`); bulunanların kopyası search notes'a yazılır. Değer bulunamazsa adı benzeyen sütunlar (`similar_columns`) |
 | `harness/tools/ask_user.py` | Adım 3 | Soruyu terminaldeki kişiye sorar (`run.py`'de de `evaluate.py`'de de; aynı anda gelen sorular tek tek); cevap clarification olarak saklanır |
-| `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). `remember_mistake`: sorudaki ilk hata (memory için) |
-| `harness/tools/submit.py` | Adım 7–9 | `run`: agent'ın `submit`'i. `candidates`: ek SQL'ler (`write_sql`), gruplama, seçim. `confidence`: confidence gate. `medium_note`. `final_check`. `consensus_answer`: fallback answer için candidate consensus'u |
+| `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). |
+| `harness/tools/submit.py` | Adım 7–9 | `run`: agent'ın ve teacher'ın `submit`'i. `candidates`: ek SQL'ler (`write_sql`), gruplama, seçim. `confidence`: confidence gate. `medium_note`. `final_check`. `consensus_answer`: fallback answer için candidate consensus'u |
 | `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `earlier_calls`: aynı çağrının tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
-| `harness/memory.py` | Adım 1, soru bittikten sonra | Database memory'yi okur (TF-IDF ile en benzer 3 kayıt) ve yazar: `experience/memory/<db_id>.jsonl` |
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
 | `config.py` | | Tüm sabitler (aşağıdaki tablo) |
@@ -93,8 +92,6 @@ def run_steps(context):
             result = ask_user.run(question, context)                # adım 3
         elif step["tool"] == "execute_sql":
             result = execute_sql.run(sql, context)                  # adım 4–6
-        elif context.teacher:
-            return teacher_submit(step, context)                    # doğrudan final check
         else:
             outcome = submit.run(sql, context)                      # adım 7–9
             if outcome["done"]:
@@ -113,27 +110,26 @@ def run_steps(context):
 |---|---|---|
 | Tool-call budget | Agent 10, teacher bunun yarısı (5). Reddedilen istekler sayılır, candidate çalıştırmaları sayılmaz | Adım 2, 10 |
 | Kalan budget | Her sonucun altında yazar; son 2 hakta "submit et" hatırlatması da eklenir (`BUDGET_WARNING`) | Adım 2 |
-| Tekrar sınırı | Aynı çağrı 3. kez tekrarlanırsa handoff (`MAX_REPEATS`) | Adım 2, 10 |
+| Tekrar sınırı | Aynı çağrı 3. kez tekrarlanırsa handoff (`MAX_REPEATS`); agent ve teacher yalnızca kendi tekrarlarıyla sayılır. `submit` yalnızca çalışmayan bir SQL'i yeniden gönderirse tekrar sayılır | Adım 2, 10 |
 | `ask_user` sınırı | Soru başına 5 (agent ve teacher toplam); budget'tan düşer | Adım 3 |
 | Search sonuç sayısı | 5 | Adım 3 |
 | Değer index'i | 100 karakterden uzun metinler index'e girmez; bir aramada index'ten en fazla 200 aday benzerlikle sıralanır | Adım 3 |
 | Benzer yazım eşiği | `difflib` benzerliği en az 0.8 | Adım 3 |
 | Başlangıç bağlamı | En fazla 16K token; taşarsa policy modeli (temperature 0) soruya gereken tabloları seçer, diğerleri tek satıra iner | Adım 1 |
 | Profildeki değerler | Metin sütunlarında en sık 10 değer (en fazla 10 farklı değer varsa hepsi), en fazla 40 karakter; sayısal sütunlarda yalnızca min ve max | Adım 1 |
-| Database memory | Soruya en çok benzeyen 3 kayıt (TF-IDF benzerliği) | Adım 1 |
 | Zaman aşımı / satır sınırı | 30 saniye / 100 satır | Adım 6 |
 | Agent'a gösterilen sonuç | En fazla 20 satır, hücre başına en fazla 100 karakter | Adım 6 |
 | Bağlam sınırı | 32K token; aşılırsa en eski observation'lar tek satıra indirilir | Her adım |
 | İlk ek candidate | 2 | Adım 7 |
 | Toplam candidate | Consensus yoksa 8'e tamamlanır (agent'ın SQL'i dahil) | Adım 7 |
-| Candidate temperature | 0.8; her candidate aynı prompt'tan ayrı bir örnek | Adım 7 |
+| Candidate temperature | 0.8; her candidate aynı prompt'tan ayrı bir örnek. Candidate'leri submit eden model yazar (agent'ınkileri policy, teacher'ınkileri teacher) | Adım 7 |
 | Confidence gate | High: 3/3 ya da ≥6/8 · Medium: 4–5/8 · Low: ≤3/8. Oran hep 8 üzerinden; hata veren candidate hiçbir gruba sayılmaz | Adım 8 |
 | Medium note | En kalabalık 2 grup; her biri için temsilci SQL, candidate sayısı, sütunlar, satır sayısı, ilk 3 satır. En fazla 1 kez | Adım 8 |
 | Final check tekrarı | 2 kez geçmezse handoff | Adım 9 |
-| Policy ve teacher üretimi | Temperature 0.7, top_p 0.8; thinking modu kapalı | Adım 2, 10 |
+| Policy ve teacher üretimi | Temperature 0 (en olası cevap); son çağrı reddedildiyse ya da tekrarsa sıradaki adım temperature 0.7 ile örneklenir (`RETRY_TEMPERATURE`); top_p 0.8; thinking modu kapalı | Adım 2, 10 |
 | Model isteği | Cevap en fazla 1024 token; istek başına 300 saniye zaman aşımı; geçici API hatasında 8 deneme, bekleme 5 sn'den başlayıp ikiye katlanır | |
 | Değerlendirmede paralellik | Aynı anda 8 soru (`EVAL_WORKERS`; yerel sunucu istekleri batch'ler). API'de 4 | |
-| Modeller | Şu an bütün model çağrıları yerel `mlx_lm.server`'daki `Qwen/Qwen3.5-0.8B`'ye gider (yalnızca akışın çalıştığını görmek için; seed gönderilmez, çünkü sunucu seed'li istekleri batch'e almaz). API'ye dönüş `config.py`'deki yorumda: policy `qwen/qwen3.5-9b` (DeepInfra, bf16), teacher `qwen/qwen3.6-27b`. Hedef yerel modeller: policy `Qwen3.5-4B` (`mlx-community/Qwen3.5-4B-bf16`), teacher `Qwen3.6-27B` (4-bit) | |
+| Modeller | Policy (ve onun candidate'leri) yerel `mlx_lm.server`'daki `Qwen/Qwen3.5-0.8B` (seed gönderilmez, çünkü sunucu seed'li istekleri batch'e almaz). Teacher OpenRouter API'sindeki `qwen/qwen3.5-9b` (DeepInfra, bf16; key `.env`'de). Teacher'ı da yerelde çalıştırmak ya da policy'yi API'ye almak `config.py`'deki yorumda. Hedef yerel modeller: policy `Qwen3.5-4B` (`mlx-community/Qwen3.5-4B-bf16`), teacher `Qwen3.6-27B` (4-bit) | |
 | Seed'ler | 0, 1, 2 | |
 | Örneklem | `--limit n`: soruların seed 0 ile seçilmiş sabit bir örneklemi, veri setindeki sırayla (`SAMPLE_SEED`). Aynı n hep aynı soruları seçer | |
 
@@ -143,9 +139,8 @@ def run_steps(context):
 - İlk satır deneyin kendisidir: deney adı, seed, veri seti (`bird` / `mini_interact`), `--limit`, soru sayısı, bütün `config.py` değerleri ve prompt metinleri.
 - Sonraki her satır bir sorudur: `question_id`, `db_id`, `sql` (cevap), `label`, `answered_by` (agent / teacher), `correct` (doğru SQL'i yoksa boş), `tool_calls`, `executions` (gerçek çalıştırma sayısı), `candidates`, `clarifications`, `handoff_reason`, `steps` (her tool call ve observation; `by` alanı agent mı teacher mı), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. Gold SQL hata verirse `gold_error`, model cevap vermezse `error` da yazılır.
 
-**`experience/log.jsonl`** (experience log; ileride agent'ın eğitim verisi, kayıtlar birikir; `agent/loop.py` her soru bitince yazar): her satır bir soru: zaman, split (`use` kullanımda, `dev` değerlendirmede; `correct` yalnızca `dev`'de dolu), veri seti, `question_id`, `db_id`, soru, evidence, gold SQL, cevap SQL'i, `label`, `correct`, `answered_by`, `handoff_reason`, model adları, seed ve `messages` (agent'ın, handoff olduysa teacher'ın da gördüğü konuşmanın tamamı: sistem prompt'u, adım 1'in bağlamı, her tool call ve observation). Eğitime yalnızca `split = train` satırları girer. `experience/executions.jsonl` eski biçimde (her SQL çalıştırması bir satır) yazılmış kayıtlardır.
+**`experience/log.jsonl`** (experience log; ileride agent'ın eğitim verisi, kayıtlar birikir; `agent/loop.py` her soru bitince yazar): her satır bir soru: zaman, split (`use` kullanımda, `dev` değerlendirmede; `correct` yalnızca `dev`'de dolu), veri seti, `question_id`, `db_id`, soru, evidence, gold SQL, cevap SQL'i, `label`, `correct`, `answered_by`, `handoff_reason`, model adları, seed ve `messages` (agent'ın, handoff olduysa teacher'ın da gördüğü konuşmanın tamamı: sistem prompt'u, adım 1'in bağlamı, her tool call ve observation). Eğitime yalnızca `split = train` satırları girer.
 
-**`experience/memory/<db_id>.jsonl`** (database memory): soru, ilk hatalı SQL, aldığı not, cevap SQL'i.
 
 ## Yazım sırası
 
@@ -157,7 +152,7 @@ Sistem küçük aşamalarla yazıldı. Her aşama tek bir parça ekledi, `pytest
 | Phase 1-B1: İlk çalışan agent | 4–8 | Model çalıştırma; tool'suz tek SQL (baseline); agent loop ve `submit`; `execute_sql`; pre-check |
 | Phase 1-B2: Trial loop | 9–15 | Tekrar guardrail'i ve cache; uzun sonucun kırpılması; bağlamın sıkıştırılması; `search_values` |
 | Phase 1-B3: Cevabı doğrulama | 17–21 | Final check; candidate'ler; adaptive rule (8'e tamamlama); confidence gate; medium note |
-| Phase 1-B4: Yardım ve hafıza | 22–25 | Handoff (teacher); `ask_user`; database memory |
+| Phase 1-B4: Yardım | 22–23 | Handoff (teacher); `ask_user` |
 | Phase 1 sonuçları | 29 | Tam sistemle ölçüm |
 | Phase 2: Mini-Interact | 30, 33 | Mini-Interact verisi; ölçüm |
 | Yerel modeller | 35 | Policy ve teacher yerelde; belleğe sığma ve hız |

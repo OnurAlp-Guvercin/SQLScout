@@ -16,7 +16,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 
 | # | Step | Who | What happens |
 |---|---|---|---|
-| 1 | Initial context | Harness | Schema, column descriptions, column profiles, mistakes made earlier on this database (database memory) |
+| 1 | Initial context | Harness | Schema, column descriptions, column profiles, evidence |
 | 2 | Agent decides | Agent | One tool call per turn: search, ask, try or submit. At most 10 tool calls |
 | 3 | Gather information | Harness | `search_values`, `ask_user` |
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try |
@@ -52,11 +52,10 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
 | `harness/tools/submit.py` | 7–9 | Candidates and selection, confidence gate, medium note, final check |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
-| `harness/memory.py` | 1 | Database memory |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |
 | `evaluate.py`, `report.py`, `mini_interact.py`, `run.py` | | Evaluation, result tables, Mini-Interact data, a single question. Every question, wherever it runs, is written to the experience log (`experience/log.jsonl`) for training the agent later |
 | `config.py` | | All constants |
-| `tests/` | | 99 tests; no API needed, a small test database |
+| `tests/` | | 88 tests; no API needed, a small test database |
 
 Every part of the flow is always on. Details: [docs/en/CODE_STRUCTURE.md](docs/en/CODE_STRUCTURE.md).
 
@@ -71,19 +70,22 @@ The system was built in small, numbered stages; each stage adds one piece and is
 
 ## Results
 
-A fixed set of 50 questions from BIRD dev (sampled with seed 0). Accuracy follows the official BIRD rule: an answer is correct if its result set equals that of the gold SQL.
+A fixed sample of 20 BIRD dev questions (`--limit 20`), seed 0. The single SQL is `harness/tools/submit.py` `write_sql` on the step 1 context with temperature 0.
 
-**First parts of the flow, Qwen3.5-9B via API:**
-
-| Stage | System | Seed 0 / 1 / 2 |
+| System | Correct | Cost |
 |---|---|---|
-| 5 | Single SQL without tools (baseline) | 64% / 66% / 62% |
-| 6 | Agent loop, only the `submit` tool | 60% / 64% / 66% |
-| 7 | + `execute_sql` | 58% / – / – |
+| Qwen3.5-0.8B, tool-free single SQL | 3/20 (`results/base08_20_seed0.jsonl`) | local |
+| Full system with only the 0.8B (agent and teacher) | 3/20 (`results/agent08_only_seed0.jsonl`) | local |
+| Qwen3.5-9B, tool-free single SQL | 13/20 (`results/base9b_20_seed0.jsonl`) | $0.012 |
+| **Full system: 0.8B agent, 9B teacher** | **13/20** (`results/full_9bteacher_fix_seed0.jsonl`) | $0.13 |
+| Full system with the 9B as agent and teacher | 14/20 (`results/agent9b_seed0.jsonl`) | $0.19 |
 
-**Full system, local Qwen3.5-0.8B, current code:** 0/10 on a fixed sample of 10 BIRD dev questions (`python evaluate.py --name sade_08b --limit 10`, `results/sade_08b_seed0.jsonl`); across repeated runs of this kind the result moved between 0 and 2 out of 10, and a tool-free single SQL from the same model gets 2/10. The 0.8B model is far too weak for this task (it often writes SQL that does not run); the run shows that every path of the flow runs end to end without errors.
+What these numbers say:
+- **The 0.8B model is the ceiling.** On 25 questions, at least one of 8 candidates is correct for only 6 questions, against 5 for its single SQL. The agent loop and the gate can choose and point at errors, but they cannot produce a query the model cannot write.
+- **With the 0.8B agent, the gain comes from the teacher.** 19 of 20 questions are handed over; the result equals the 9B's own single SQL at ten times the cost.
+- **With the 9B as agent, the loop adds one question** (14 against 13), which is within the noise of 20 questions.
 
-On 50 questions, a difference of 1–3 questions is noise; these numbers only track progress.
+Accuracy follows the official BIRD rule: an answer is correct if its result set equals that of the gold SQL.
 
 ## Running
 
