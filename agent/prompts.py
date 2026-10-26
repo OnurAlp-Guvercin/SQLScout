@@ -35,11 +35,6 @@ result already answers the question.
 
 {SQL_RULES}"""
 
-# Schema linking (adım 1): bağlam sınırı aşınca model soruya gereken tabloları seçer (harness/prepare.py select_tables).
-SELECT_TABLES = """You are an expert SQLite analyst. You are given part of a database schema and a question. List \
-the tables needed to write the SQL query that answers the question, including tables needed only to join others. \
-Return only a JSON list of table names, like ["orders", "customers"], or [] if no table here is needed."""
-
 # Handoff (adım 8): teacher, agent'ın konuşmasını bu notla devralır.
 TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over to you. Reason: {reason}.
 Everything it tried is above. Continue from here: you have a new budget of {budget} tool calls. \

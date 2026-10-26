@@ -77,7 +77,7 @@ Harness agent'a şunları verir:
 - Şema: tablolar, sütunlar, BIRD'ün sütun açıklamaları, foreign key'ler.
 - Column profile'ları. Metin sütunlarında en sık 10 değer (en fazla 10 farklı değeri olan sütunlarda, ör. `status`, bütün değerler); geri kalan değerleri agent gerekirse `search_values` ile bulur. Sayısal sütunlarda yalnızca en küçük ve en büyük değer.
 
-Bağlam en fazla 16K token olur. Taşarsa soruya gereken tabloları bir LLM seçer (schema linking): şema sığacak parçalara bölünür, model her parçadan gereken tabloların adlarını yazar, seçimler birleştirilir. Seçilmeyen tablolar tek satıra iner (yalnızca sütun adları ve tipleri). Model şemayı yeniden yazmaz, yalnızca tablo seçer; böylece olmayan bir sütun uyduramaz. BIRD dev'de bağlam bu sınırı hiç aşmıyor (en büyüğü ~14K).
+BIRD dev'de bu bağlam en fazla ~12K token; modelin bağlam sınırının çok altında.
 
 → 2
 
@@ -166,13 +166,12 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 |---|---|---|
 | Son cevap her zaman gerçekten çalıştırılır | Çalıştırılmamış bir SQL'in doğru olduğu bilinemez | — |
 | Cevap, agent'ın en son çalıştırdığı SQL'dir (`submit` argümansız) | Agent sonucunu gördüğü sorguyu yeniden yazarken bozamaz | — |
-| Agent önce cevabı yazar, keşif sorgusuyla başlamaz | Ölçümde, keşifle başlayan agent'ın ilk SQL'i 20 soruda hiç doğru değildi; tek SQL 4'te doğruydu | — |
+| Agent önce cevabı yazar, keşif sorgusuyla başlamaz | Keşif sorgularıyla başlayan küçük model çoğu zaman keşifte kalıyor ve cevabı hiç yazmıyor | — |
 | Hata notu düzeltmek için gerekeni söyler | Küçük modeller hatayı ancak neyin yanlış olduğu açıkça yazılırsa düzeltebilir (ör. sorgudaki tabloların gerçek sütunları) | DualSQL |
 | Temperature 0; takılınca örnekleme | En olası cevap tek SQL'de daha doğru; ama aynı girdiye hep aynı cevap verildiği için reddedilen ya da tekrarlanan çağrıdan sonra örneklenir | — |
 | Sonuçlar BIRD'ün resmi kuralıyla karşılaştırılır (result key) | "Aynı sonuç" tek bir yerde tanımlıdır | BIRD |
-| Bağlam sınırı aşılırsa tabloları LLM seçer (schema linking), şemayı özetlemez | Model tablo adı seçtiği için olmayan bir sütun uyduramaz | MAC-SQL (Selector) |
 | Adım 1 olabildiğince çok bilgi verir (sütun açıklamaları, column profile'ları) | Her search bir tool call harcar. Bilgi baştan gelirse budget denemeye kalır | DualSQL, HarnessSQL |
-| İlerlemeyen agent erken handoff yapar | Ölçümde, ilk 4 adımda dolu sonuç alamayan agent o soruyu hiç çözemedi; teacher kısa bir geçmişle başlar, maliyet düşer | — |
+| İlerlemeyen agent erken handoff yapar | İlk adımlarında dolu sonuç alamayan agent genelde soruyu çözemiyor; teacher kısa bir geçmişle başlar, maliyet düşer | — |
 | Teacher agent'ın kaldığı yerden devam eder | Agent'ın bulduğu bilgi boşa gitmez; handoff kayıtları doğrudan eğitim verisi olur | OLIVE, OVCSD |
 | Agent harness içinde eğitilir | Harness dışında eğitilen model, harness'ta kullanıldığında 30.4'ten 9.6'ya düşüyor | HarnessSQL |
 
@@ -204,7 +203,6 @@ Yalnızca bu tasarımı doğrudan şekillendiren çalışmalar. Tam tarama [ARAS
 **Harness**
 - HarnessSQL ([2610.12274](https://arxiv.org/abs/2610.12274)): agent'ın kullanılacağı harness'ın içinde eğitilmesi; tool seti; teacher seçimi (Qwen3.6-27B).
 - DualSQL ([2609.18135](https://arxiv.org/abs/2609.18135)): guardrail'ler (aynı çağrının tekrarı, format hatası).
-- MAC-SQL ([2312.11242](https://arxiv.org/abs/2312.11242)): şema uzunsa soruya gereken tabloları bir LLM'in seçmesi (adım 1).
 
 **Handoff**
 - OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) ve OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): teacher'ın agent'ın kaldığı yerden devam etmesi (adım 8); on-policy distillation.

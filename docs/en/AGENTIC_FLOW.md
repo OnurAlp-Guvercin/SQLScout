@@ -79,7 +79,7 @@ The harness gives the agent:
 - The schema: tables, columns, BIRD's column descriptions, foreign keys.
 - Column profiles. For text columns the 10 most frequent values (all values for columns with at most 10 distinct values, e.g. `status`); the agent finds the remaining values with `search_values` if needed. For numeric columns only the minimum and maximum.
 
-The context is at most 16K tokens. If it overflows, an LLM selects the tables the question needs (schema linking): the schema is split into parts that fit, the model writes the names of the tables needed from each part, and the selections are merged. Tables that are not selected shrink to one line (column names and types only). The model does not rewrite the schema, it only selects tables; so it cannot invent a column. In BIRD dev the context never exceeds this limit (the largest is ~14K).
+In BIRD dev this context is at most ~12K tokens, well below the model's context limit.
 
 → 2
 
@@ -168,13 +168,12 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 |---|---|---|
 | The final answer is always really executed | Whether an unexecuted SQL is correct cannot be known | — |
 | The answer is the last SQL query the agent ran (`submit` takes no arguments) | The agent cannot break the query whose result it saw while rewriting it | — |
-| The agent writes the answer first, it does not start with exploratory queries | In the measurements, the first SQL of an agent that started by exploring was correct for none of 20 questions; the single SQL was correct for 4 | — |
+| The agent writes the answer first, it does not start with exploratory queries | A small model that starts with exploratory queries often stays exploring and never writes the answer | — |
 | The error note says what is needed to fix it | Small models fix an error only when what is wrong is written out clearly (e.g. the real columns of the tables in the query) | DualSQL |
 | Temperature 0; sampling when stuck | The most likely reply gives a more accurate single SQL; but the same input always gets the same reply, so after a rejected or repeated call the next step is sampled | — |
 | Results are compared with BIRD's official rule (result key) | "The same result" is defined in one place | BIRD |
-| If the context limit is exceeded, an LLM selects tables (schema linking) instead of summarizing the schema | Since the model selects table names, it cannot invent a column | MAC-SQL (Selector) |
 | Step 1 gives as much information as possible (column descriptions, column profiles) | Every search costs a tool call. If the information comes up front, the budget is left for trying | DualSQL, HarnessSQL |
-| An agent that makes no progress hands over early | In the measurements, an agent that got no rows in its first 4 steps never solved that question; the teacher starts with a short history and the cost goes down | — |
+| An agent that makes no progress hands over early | An agent that gets no rows in its first steps usually cannot solve the question; the teacher starts with a short history and the cost goes down | — |
 | The teacher continues where the agent left off | What the agent found is not wasted; handoff records become training data directly | OLIVE, OVCSD |
 | The agent is trained inside the harness | A model trained outside the harness drops from 30.4 to 9.6 when used in the harness | HarnessSQL |
 
@@ -206,7 +205,6 @@ Only the works that directly shaped this design. The full survey is in [RESEARCH
 **Harness**
 - HarnessSQL ([2610.12274](https://arxiv.org/abs/2610.12274)): training the agent inside the harness it will be used in; the tool set; the choice of teacher (Qwen3.6-27B).
 - DualSQL ([2609.18135](https://arxiv.org/abs/2609.18135)): guardrails (repeated calls, format errors).
-- MAC-SQL ([2312.11242](https://arxiv.org/abs/2312.11242)): an LLM selecting the tables the question needs when the schema is long (step 1).
 
 **Handoff**
 - OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) and OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): the teacher continuing where the agent left off (step 8); on-policy distillation.

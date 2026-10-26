@@ -27,8 +27,8 @@ POLICY_PROVIDERS = None  # yerel sunucuda None
 # API'de model yalnızca bunlardan birinde, bf16 çalışır; biri yoğunsa (429) sıradakine geçilir
 TEACHER_PROVIDERS = ["deepinfra", "primeintellect", "parasail"]
 SEND_SEED = False  # yerel sunucu seed'li istekleri batch'e almaz, tek tek çalıştırır
-TOKENIZER_MODEL = "Qwen/Qwen3.5-9B"  # 16K bağlam sınırı asıl model (Qwen) için sayılır; yalnızca tokenizer indirilir
-POLICY_TEMPERATURE = 0  # policy ve teacher her adımda en olası cevabı seçer (0.8B'de tek SQL: 0'da 5/25, 0.7'de 3/25)
+TOKENIZER_MODEL = "Qwen/Qwen3.5-9B"  # konuşmanın token'ları (CONVERSATION_MAX_TOKENS) bununla sayılır; yalnızca tokenizer indirilir
+POLICY_TEMPERATURE = 0  # policy ve teacher her adımda en olası cevabı seçer
 POLICY_TOP_P = 0.8
 RETRY_TEMPERATURE = 0.7  # son çağrı reddedildiyse ya da tekrarsa sıradaki adım bununla örneklenir (0'da aynısı gelir)
 MAX_NEW_TOKENS = 1024
@@ -62,8 +62,6 @@ FINAL_CHECK_TRIES = 2  # 2 kez geçmezse handoff
 # Experience log (soru bittikten sonra): ileride agent'ın eğitim verisi
 EXPERIENCE_LOG = PROJECT_DIR / "experience" / "log.jsonl"
 
-# Başlangıç bağlamı ve column profile (adım 1)
-CONTEXT_MAX_TOKENS = 16000
-SCHEMA_SELECT_TEMPERATURE = 0  # sınır aşılınca tabloları seçen model; aynı soru hep aynı seçimi alsın
+# Column profile (adım 1)
 PROFILE_TOP_VALUES = 10  # metin sütunlarında en sık 10 değer (en fazla 10 farklı değer varsa hepsi); diğerlerini agent search_values ile bulur
 PROFILE_VALUE_MAX_CHARS = 40

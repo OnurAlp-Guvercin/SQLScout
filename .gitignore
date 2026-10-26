@@ -1,13 +1,11 @@
 # Gizli değerler (API anahtarı)
 .env
 
-# Büyük veri setleri ve hazırlanmış dosyalar (BIRD ~33 GB, Mini-Interact); README'de nasıl indirileceği yazıyor
+# Büyük veri setleri ve hazırlanmış dosyalar (BIRD ~33 GB); README'de nasıl indirileceği yazıyor
 data/
 
-# Çalışma sırasında biriken kayıtlar
-experience/log.jsonl
-experience/executions.jsonl
-experience/memory/
+# Çalışma sırasında biriken kayıtlar (experience log)
+experience/
 
 # Python
 .venv/
@@ -17,3 +15,6 @@ __pycache__/
 # Diyagramın ara çıktısı
 docs/diyagram/flow.html
 docs/diyagram/flow_en.html
+
+# macOS
+.DS_Store

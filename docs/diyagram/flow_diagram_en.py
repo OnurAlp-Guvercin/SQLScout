@@ -90,7 +90,7 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','User question','e.g. “Which category had the most returns in 2025?”',shape='pill',tsize=18)
-node(822,350,324,124,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles · over 16K: the policy model selects tables',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Question + evidence · schema, descriptions, links · column profiles',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'question','k')
 arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'initial context','b')
 

@@ -19,10 +19,10 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 | Dosya | Akıştaki yeri | Ne yapar |
 |---|---|---|
 | `agent/loop.py` | Adım 2, 8 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → experience log. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider; ilk 4 adımda ilerleme yoksa erken handoff. `next_step`: modelden sıradaki tool call (takılınca örnekleme). Handoff: `start_teacher`, `fallback_answer` (en son hatasız ve dolu çalışan SQL). `write_experience`: her soru bitince experience log |
-| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, base'in tek SQL'i, tablo seçimi, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
+| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent, base'in tek SQL'i, teacher'ın devralma notu) ve tool tanımları (`TOOLS`) |
 | `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Policy yerel `mlx_lm.server`'a, teacher OpenRouter'a gider (`LLM_URL`, `TEACHER_URL`); ikisi de OpenAI biçimi, adresler `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
-| `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). Bağlam 16K'yı aşarsa `select_tables`: soruya gereken tabloları LLM seçer. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
+| `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
 | `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`). Değer bulunamazsa adı benzeyen sütunlar (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache. `format_result`: sonucu metne çevirir (20 satır; boşsa `search_values` hatırlatması). |
 | `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i: en son çalıştırılan SQL cevaptır; 2 kez geçmezse handoff. `final_check`: çalıştırılmış bir SQL var mı, pre-check, hatasız çalışıyor mu |
@@ -113,7 +113,7 @@ def run_steps(context):
 | Search sonuç sayısı | 5 | Adım 3 |
 | Değer index'i | 100 karakterden uzun metinler index'e girmez; bir aramada index'ten en fazla 200 aday benzerlikle sıralanır | Adım 3 |
 | Benzer yazım eşiği | `difflib` benzerliği en az 0.8 | Adım 3 |
-| Başlangıç bağlamı | En fazla 16K token; taşarsa policy modeli (temperature 0) soruya gereken tabloları seçer, diğerleri tek satıra iner | Adım 1 |
+| Başlangıç bağlamı | Bütün şema ve column profile'ları; BIRD dev'de en fazla ~12K token | Adım 1 |
 | Profildeki değerler | Metin sütunlarında en sık 10 değer (en fazla 10 farklı değer varsa hepsi), en fazla 40 karakter; sayısal sütunlarda yalnızca min ve max | Adım 1 |
 | Zaman aşımı / satır sınırı | 30 saniye / 100 satır | Adım 6 |
 | Agent'a gösterilen sonuç | En fazla 20 satır, hücre başına en fazla 100 karakter | Adım 6 |

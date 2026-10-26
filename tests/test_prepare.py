@@ -1,13 +1,11 @@
-"""harness/prepare.py testleri (aşama 3): başlangıç bağlamı ve sınır aşılınca tablo seçimi."""
+"""harness/prepare.py testleri (aşama 3): başlangıç bağlamı."""
 
 from pathlib import Path
 
 import pytest
 
 import config
-from agent import llm
 from harness import prepare
-from tests.fakes import text_reply
 
 QUESTION = "Which city has the most returned items?"
 EVIDENCE = "returned refers to status = 'returned'"
@@ -52,55 +50,3 @@ def test_many_values_show_most_common_without_counts(bird_db, monkeypatch):
 def test_profiles_are_saved_once(bird_db):
     prepare.build_context(QUESTION, EVIDENCE, bird_db)
     assert (config.PREPARED_DIR / "shop" / "profiles.json").exists()
-
-
-def test_long_context_keeps_only_tables_the_model_selects(bird_db, monkeypatch):
-    full = prepare.build_context(QUESTION, EVIDENCE, bird_db)
-    assert "details omitted" not in full
-
-    monkeypatch.setattr(config, "CONTEXT_MAX_TOKENS", llm.count_tokens(full) - 1)
-    monkeypatch.setattr(llm, "chat", lambda messages, temperature=None: text_reply('["items"]'))
-    shortened = prepare.build_context(QUESTION, EVIDENCE, bird_db)
-    assert "Table stores (3 rows), details omitted: id INTEGER, item_id INTEGER, backup_item INTEGER, name TEXT" in shortened
-    assert "- city TEXT; Shop city" in shortened
-
-
-# Bağlam sınırı aşılınca LLM'in soruya gereken tabloları seçmesi (schema linking).
-BLOCKS = {"orders": "Table orders\n- id INTEGER", "customers": "Table customers\n- id INTEGER",
-          "colour": "Table colour\n- colour TEXT"}
-
-
-def fake_chat(monkeypatch, answers):
-    """Model sırayla answers'taki metinleri return eder; modele giden şema parçaları kaydedilir."""
-    seen = []
-
-    def chat(messages, temperature=None):
-        seen.append(messages[1]["content"])
-        return text_reply(answers.pop(0))
-
-    monkeypatch.setattr(llm, "chat", chat)
-    return seen
-
-
-def test_schema_is_split_into_chunks_and_selections_are_joined(monkeypatch):
-    two_tables = llm.count_tokens(BLOCKS["orders"]) + llm.count_tokens(BLOCKS["customers"])
-    monkeypatch.setattr(config, "CONTEXT_MAX_TOKENS", two_tables)  # parçalar: orders + customers, colour
-    seen = fake_chat(monkeypatch, ['Tables: ["orders", "Customers"]', "[]"])
-    assert prepare.select_tables("How many orders per customer?", "", BLOCKS) == {"orders", "customers"}
-    assert len(seen) == 2 and seen[1].startswith("Table colour")
-    assert "Table customers" in seen[0] and seen[0].endswith("Question: How many orders per customer?")
-
-
-def test_selection_that_still_does_not_fit_is_selected_again(monkeypatch):
-    monkeypatch.setattr(config, "CONTEXT_MAX_TOKENS", llm.count_tokens(BLOCKS["orders"]) + 1)
-    fake_chat(monkeypatch, ['["orders"]', '["customers"]', "[]", '["orders"]', "[]"])
-    assert prepare.select_tables("q", "", BLOCKS) == {"orders"}
-
-
-def test_broken_answer_selects_nothing(monkeypatch):
-    fake_chat(monkeypatch, ['{"tables": "orders"}'])
-    assert prepare.select_tables("q", "", BLOCKS) == set()
-    fake_chat(monkeypatch, ["[orders, customers"])
-    assert prepare.select_tables("q", "", BLOCKS) == set()
-    fake_chat(monkeypatch, ['[["orders"], "missing", "colour"]'])
-    assert prepare.select_tables("q", "", BLOCKS) == {"colour"}

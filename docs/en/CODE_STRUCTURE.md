@@ -21,10 +21,10 @@ This document describes how the code is organized, how it is written and in what
 | File | Place in the flow | What it does |
 |---|---|---|
 | `agent/loop.py` | Steps 2, 8 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → experience log. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`; an early handoff if there is no progress in the first 4 steps. `next_step`: the next tool call from the model (sampled when stuck). Handoff: `start_teacher`, `fallback_answer` (the last SQL that ran without error and returned rows). `write_experience`: the experience log, when each question ends |
-| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, the base's single SQL, table selection, the teacher's takeover note) and the tool definitions (`TOOLS`) |
+| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent, the base's single SQL, the teacher's takeover note) and the tool definitions (`TOOLS`) |
 | `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). The policy goes to a local `mlx_lm.server`, the teacher to OpenRouter (`LLM_URL`, `TEACHER_URL`); both use the OpenAI format, the addresses are in `config.py`. To try it: `python -m agent.llm "question"` |
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
-| `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). If the context exceeds 16K, `select_tables`: an LLM selects the tables the question needs. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
+| `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
 | `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`). If no value is found, the columns with a similar name (`similar_columns`) |
 | `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty). |
 | `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`: the last SQL that was run is the answer; handoff if it fails twice. `final_check`: has a SQL query been run, pre-check, does it run without error |
@@ -115,7 +115,7 @@ def run_steps(context):
 | Number of search results | 5 | Step 3 |
 | Value index | Texts longer than 100 characters are not indexed; in one search at most 200 values from the index are ranked by similarity | Step 3 |
 | Similar spelling threshold | `difflib` similarity at least 0.8 | Step 3 |
-| Initial context | At most 16K tokens; if it overflows, the policy model (temperature 0) selects the tables the question needs, the others shrink to one line | Step 1 |
+| Initial context | The whole schema and column profiles; at most ~12K tokens in BIRD dev | Step 1 |
 | Values in the profile | For text columns, the 10 most frequent values (all of them if there are at most 10 distinct values), at most 40 characters; for numeric columns, only min and max | Step 1 |
 | Timeout / row limit | 30 seconds / 100 rows | Step 6 |
 | Result shown to the agent | At most 20 rows, at most 100 characters per cell | Step 6 |

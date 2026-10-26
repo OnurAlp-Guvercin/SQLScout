@@ -47,7 +47,7 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 |---|---|---|
 | `agent/loop.py` | 2, 8 | The flow itself: each tool is one branch that goes to one file; handoff to the teacher, fallback answer |
 | `agent/prompts.py`, `agent/llm.py`, `agent/context.py` | | Everything the model sees (prompts and tool definitions), talking to the model, the state of one question |
-| `harness/prepare.py` | 1 | Initial context; table selection when the schema is too long |
+| `harness/prepare.py` | 1 | Initial context: schema, column descriptions and profiles, evidence |
 | `harness/tools/search_values.py` | 3 | Searching values |
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
 | `harness/tools/submit.py` | 7 | Final check |
@@ -65,19 +65,8 @@ Every part of the flow is always on. Details: [docs/en/CODE_STRUCTURE.md](docs/e
 The system was built in small, numbered stages; each stage adds one piece and is verified by tests.
 
 - ✅ All 8 steps of the flow, on BIRD.
-- ⏳ **Measurements:** now with a local Qwen3.5-0.8B policy and a Qwen3.5-9B teacher on the API; the paper's numbers with local Qwen3.5-4B / Qwen3.6-27B.
+- ⏳ **Measurements:** not taken yet. Development runs use a local Qwen3.5-0.8B policy and a Qwen3.5-9B teacher on the API; the paper's numbers will use local Qwen3.5-4B / Qwen3.6-27B.
 - ⏸ **Later:** training the agent inside the harness with the experience log (SFT → on-policy distillation → RL).
-
-## Results
-
-A fixed sample of 20 BIRD dev questions (`--limit 20`), seed 0. The base is `baseline.py`: a tool-free single SQL on the step 1 context with temperature 0.
-
-| System | Correct | Cost |
-|---|---|---|
-| Base: Qwen3.5-0.8B, tool-free single SQL | 4/20 (`results/base08_seed0.jsonl`) | local |
-| Base: Qwen3.5-9B, tool-free single SQL | 13/20 (`results/base9b_seed0.jsonl`) | $0.012 |
-
-The agentic system with the current code has not been measured yet. Accuracy follows the official BIRD rule: an answer is correct if its result set equals that of the gold SQL. On 20 questions, one question is 5 points.
 
 ## Running
 

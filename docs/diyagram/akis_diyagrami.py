@@ -87,7 +87,7 @@ def label(x,y,text,c='k',dashed=False,bold=False):
 lane_headers()
 # --- online flow ---
 node(70,362,320,80,'io','Kullanıcı sorusu','ör. “2025’te en çok iade edilen kategori hangisi?”',shape='pill',tsize=18)
-node(822,350,324,124,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları · 16K aşılırsa policy modeli tablo seçer',tsize=18)
+node(822,350,324,124,'harness','Context preparation','Soru + evidence · şema, açıklamalar, bağlantılar · column profile\'ları',tsize=18)
 arrow([(390,402),(818,402)],'k'); label(604,402,'soru','k')
 arrow([(984,474),(984,487),(300,487),(300,496)],'b'); label(640,487,'başlangıç bağlamı','b')
 
