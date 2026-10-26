@@ -95,9 +95,8 @@ node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Mevcut durumu düşün</li><li>TEK bir tool call seç</li>
-<li>Önce soruyu cevaplayan SQL\'i yaz ve çalıştır</li>
+<li>Sırayı kendisi seçer: değer ara, veriyi keşfet ya da bir sorgu dene</li>
 <li>Gerçek sonuca bak, gerekirse düzelt</li>
-<li>Emin olmadığını küçük bir sorguyla kontrol et</li>
 <li>Soruyu cevaplayan SQL\'i <i>submit</i> et</li></ul>
 <p>Budget: en fazla 10 tool call; ilk 4'ünde dolu sonuç yoksa handoff</p></div>''')
 

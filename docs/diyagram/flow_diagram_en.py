@@ -98,9 +98,8 @@ node(70,500,320,910,'policy','','')
 divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <div class="agt">Agent loop</div>
 <ul><li>Think about the current state</li><li>Pick ONE tool call</li>
-<li>First write and run the SQL that answers the question</li>
+<li>Chooses the order itself: search a value, explore the data or try a query</li>
 <li>Look at the real result, fix it if needed</li>
-<li>Check what it is not sure about with a small query</li>
 <li><i>submit</i> the SQL that answers the question</li></ul>
 <p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows</p></div>''')
 

@@ -17,7 +17,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | # | Step | Who | What happens |
 |---|---|---|---|
 | 1 | Initial context | Harness | Schema, column descriptions, column profiles, evidence |
-| 2 | Agent decides | Agent | One tool call per turn: try SQL, search a value or submit; it writes the answer first instead of exploring. At most 10 tool calls |
+| 2 | Agent decides | Agent | One tool call per turn, in the order it chooses: try or explore with SQL, search a value, or submit. At most 10 tool calls |
 | 3 | Search for values | Harness | `search_values`: how a value is written and in which column |
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try, or a small query to check something it is not sure about |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |

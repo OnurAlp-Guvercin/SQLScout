@@ -83,8 +83,8 @@ BIRD dev'de bu bağlam en fazla ~12K token; modelin bağlam sınırının çok a
 
 ### 2. Agent ne yapacağına karar verir
 
-Agent her turda tek bir tool call yapar. Prompt ona bir çalışma sırası verir: önce soruyu cevaplayan SQL'i yaz ve çalıştır (keşif sorgusuyla başlama), sonuca bak, gerekirse düzelt; emin olmadığın bir şey varsa (ör. bir sütunda hangi değerler var, iki tablo nasıl bağlanıyor) bunu küçük bir sorguyla kontrol et; sonuç soruyu cevaplıyorsa `submit` et.
-- Soruyu cevaplayan SQL'i denemek ya da merak ettiği bir şeyi kontrol etmek istiyorsa → `execute_sql` → 4
+Agent her turda tek bir tool call yapar. Ne yapacağına ve hangi sırayla yapacağına kendisi karar verir; prompt yalnızca tool'ları ve ne işe yaradıklarını anlatır. Agent örnek bir sorguyla başlayabilir, önce veriyi keşfedebilir (ör. bir sütunda hangi değerler var, iki tablo nasıl bağlanıyor) ya da önce bir değeri arayabilir.
+- Bir sorgu denemek ya da veriyi keşfetmek istiyorsa → `execute_sql` → 4
 - Bir değerin veritabanında nasıl yazıldığını bilmiyorsa → `search_values` → 3
 - Çalıştırdığı bir SQL soruyu cevaplıyorsa → o SQL'le `submit` → 7. Arada attığı sorgular (kontrol, düzeltme) cevabı etkilemez
 
@@ -166,7 +166,6 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 | Karar | Neden | Dayanak |
 |---|---|---|
 | Son cevap her zaman gerçekten çalıştırılır | Çalıştırılmamış bir SQL'in doğru olduğu bilinemez | — |
-| Agent önce cevabı yazar, keşif sorgusuyla başlamaz | Keşif sorgularıyla başlayan küçük model çoğu zaman keşifte kalıyor ve cevabı hiç yazmıyor | — |
 | Hata notu düzeltmek için gerekeni söyler | Küçük modeller hatayı ancak neyin yanlış olduğu açıkça yazılırsa düzeltebilir (ör. sorgudaki tabloların gerçek sütunları) | DualSQL |
 | Temperature 0; takılınca örnekleme | En olası cevap tek SQL'de daha doğru; ama aynı girdiye hep aynı cevap verildiği için reddedilen ya da tekrarlanan çağrıdan sonra örneklenir | — |
 | Sonuçlar BIRD'ün resmi kuralıyla karşılaştırılır (result key) | "Aynı sonuç" tek bir yerde tanımlıdır | BIRD |

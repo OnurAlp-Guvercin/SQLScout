@@ -85,8 +85,8 @@ In BIRD dev this context is at most ~12K tokens, well below the model's context 
 
 ### 2. The agent decides what to do
 
-The agent makes a single tool call each turn. The prompt gives it an order of work: first write and run the SQL query that answers the question (do not start with an exploratory query), look at the result, fix it if needed; if it is not sure about something (e.g. which values a column holds or how two tables are linked), check it with a small query; and submit when the result answers the question.
-- If it wants to try the query that answers the question, or check something it is not sure about → `execute_sql` → 4
+The agent makes a single tool call each turn. It decides itself what to do and in which order; the prompt only describes the tools and what they are for. The agent can start with a sample query, explore the data first (e.g. which values a column holds or how two tables are linked), or search for a value first.
+- If it wants to try a query or explore the data → `execute_sql` → 4
 - If it does not know how a value is written in the database → `search_values` → 3
 - If a query it ran answers the question → `submit` with that query → 7. The queries it ran in between (checks, fixes) do not affect the answer
 
@@ -168,7 +168,6 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 | Decision | Why | Basis |
 |---|---|---|
 | The final answer is always really executed | Whether an unexecuted SQL is correct cannot be known | — |
-| The agent writes the answer first, it does not start with exploratory queries | A small model that starts with exploratory queries often stays exploring and never writes the answer | — |
 | The error note says what is needed to fix it | Small models fix an error only when what is wrong is written out clearly (e.g. the real columns of the tables in the query) | DualSQL |
 | Temperature 0; sampling when stuck | The most likely reply gives a more accurate single SQL; but the same input always gets the same reply, so after a rejected or repeated call the next step is sampled | — |
 | Results are compared with BIRD's official rule (result key) | "The same result" is defined in one place | BIRD |

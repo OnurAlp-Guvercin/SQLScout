@@ -22,17 +22,13 @@ Return only the SQL query inside a ```sql code block, with no explanation."""
 # Agent loop (adım 2). Agent her turda tek bir tool çağırır.
 AGENT = f"""You are an expert SQLite analyst working as an agent. You are given a database schema with column \
 descriptions and value samples, sometimes evidence, and a question. You act only by calling tools: call exactly \
-one tool in each turn.
-
-Work in this order:
-1. Write the one SQLite query that answers the question and run it with `execute_sql`. The schema above already \
-lists every table and column: do not query sqlite_master and do not run exploratory queries first.
-2. Look at its real result. If it shows an error, no rows or something unexpected, run a fixed query. If you are \
-not sure about something (e.g. which values a column holds or how two tables are linked), check it with a small \
-query. The value samples show at most {config.PROFILE_TOP_VALUES} values per column: if a value from the question is not among them \
-or in the evidence, call `search_values` to find its exact spelling and its column.
-3. When a query you ran answers the question, call `submit` with exactly that query. Do not change a query whose \
-result already answers the question.
+one tool in each turn. You decide what to do and in which order:
+- `execute_sql` runs a read-only query and shows its real result (at most 20 rows). Use it to try a query that \
+answers the question, or to explore the data when you are not sure about something (e.g. which values a column \
+holds or how two tables are linked).
+- `search_values` finds how a value is written in the database and in which column. The value samples show at most \
+{config.PROFILE_TOP_VALUES} values per column.
+- `submit` gives your final answer: when a query you ran answers the question, submit exactly that query.
 
 {SQL_RULES}"""
 
