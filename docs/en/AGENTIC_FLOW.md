@@ -183,11 +183,7 @@ The harness does the handoff: no progress in the first 4 steps or 2 wasted calls
 
 ## Build order
 
-The system was built in small, numbered stages; each stage added a single part and was tested. The list is in the "Build order" section of [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
-
-1. **SQLite + BIRD:** foundation (database, scoring, initial context), first working agent, trial loop (guardrails, `search_values`), verifying the answer (final check), handoff.
-2. **Local models:** The policy and the teacher run locally.
-3. **Agent training (later):** SFT → on-policy distillation → RL with the experience log.
+All 8 steps of the flow are done on BIRD. The next stages are in the "Build order" section of [CODE_STRUCTURE.md](CODE_STRUCTURE.md): agent training (SFT → on-policy distillation → RL), then local models for the paper's numbers.
 
 ## Evaluation
 

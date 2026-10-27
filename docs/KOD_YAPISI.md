@@ -138,18 +138,11 @@ def run_steps(context):
 
 ## Yazım sırası
 
-Sistem küçük aşamalarla yazıldı. Her aşama tek bir parça ekledi, `pytest tests/` ile denendi ve kullanıcı onaylayınca sonrakine geçildi. Yeni bir parça da aynı şekilde eklenir: parça yazılır, test edilir, kullanıcıya 2–3 cümleyle ne yapıldığı ve nasıl denendiği anlatılır.
+Sistem küçük aşamalarla yazılır: her aşama tek bir parça ekler, `pytest tests/` ve tek bir gerçek soruyla (`run.py`) denenir, kullanıcı onaylayınca sonrakine geçilir. Kullanıcıya 2–3 cümleyle ne yapıldığı ve nasıl denendiği anlatılır.
 
-| Bölüm | Aşamalar | Ne eklendi |
-|---|---|---|
-| Temel (model yok) | 1–3 | Veritabanı katmanı; BIRD dev verisi ve puanlama; başlangıç bağlamı |
-| İlk çalışan agent | 4–8 | Model çalıştırma; tool'suz tek SQL (base, `baseline.py`); agent loop ve `submit`; `execute_sql`; pre-check |
-| Trial loop | 9–15 | Tekrar guardrail'i ve cache; uzun sonucun kırpılması; bağlamın sıkıştırılması; `search_values` |
-| Cevabı doğrulama | 17 | Final check |
-| Yardım | 22 | Handoff (teacher, ilerlemeyen agent'ta erken) |
-| Sonuçlar | 29 | Tam sistemle ölçüm |
-| Yerel modeller | 35 | Policy ve teacher yerelde; belleğe sığma ve hız |
-| Agent eğitimi (ileride) | | Experience log'la SFT → on-policy distillation → RL; yalnızca train kayıtlarıyla |
+Akışın 8 adımı tamam. Sıradaki aşamalar:
+1. **Agent eğitimi:** experience log'la SFT → on-policy distillation → RL; yalnızca train kayıtlarıyla.
+2. **Yerel modeller:** makale rakamları için policy (Qwen3.5-4B) ve teacher yerelde.
 
 ## Diyagram
 

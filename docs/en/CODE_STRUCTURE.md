@@ -140,18 +140,11 @@ def run_steps(context):
 
 ## Build order
 
-The system was written in small stages. Each stage added a single part, was tested with `pytest tests/`, and the next stage started after the user approved. A new part is added the same way: the part is written, tested, and the user is told in 2–3 sentences what was done and how it was tried.
+The system is written in small stages: each stage adds a single part, is tested with `pytest tests/` and one real question (`run.py`), and the next stage starts after the user approves. The user is told in 2–3 sentences what was done and how it was tried.
 
-| Section | Stages | What was added |
-|---|---|---|
-| Foundation (no model) | 1–3 | Database layer; BIRD dev data and scoring; initial context |
-| First working agent | 4–8 | Running the model; tool-free single SQL (the base, `baseline.py`); agent loop and `submit`; `execute_sql`; pre-check |
-| Trial loop | 9–15 | Repeat guardrail and cache; trimming long results; compressing the context; `search_values` |
-| Verifying the answer | 17 | Final check |
-| Help | 22 | Handoff (teacher, early when the agent makes no progress) |
-| Results | 29 | Measurement with the full system |
-| Local models | 35 | Policy and teacher run locally; memory fit and speed |
-| Agent training (later) | | SFT → on-policy distillation → RL with the experience log; only train records |
+All 8 steps of the flow are done. Next stages:
+1. **Agent training:** SFT → on-policy distillation → RL with the experience log; only train records.
+2. **Local models:** for the paper's numbers, the policy (Qwen3.5-4B) and the teacher run locally.
 
 ## Diagram
 

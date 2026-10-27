@@ -181,11 +181,7 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok ya da 2 çağrı boşa gitti
 
 ## Uygulama sırası
 
-Sistem küçük, numaralı aşamalarla kuruldu; her aşama tek bir parça ekledi ve testle denendi. Liste [KOD_YAPISI.md](KOD_YAPISI.md) "Yazım sırası" bölümünde.
-
-1. **SQLite + BIRD:** temel (veritabanı, puanlama, başlangıç bağlamı), ilk çalışan agent, trial loop (guardrail'ler, `search_values`), cevabı doğrulama (final check), handoff.
-2. **Yerel modeller:** Policy ve teacher yerelde çalışır.
-3. **Agent eğitimi (ileride):** experience log'la SFT → on-policy distillation → RL.
+Akışın 8 adımı BIRD üzerinde tamam. Sıradaki aşamalar [KOD_YAPISI.md](KOD_YAPISI.md) "Yazım sırası" bölümünde: agent eğitimi (SFT → on-policy distillation → RL), sonra makale rakamları için yerel modeller.
 
 ## Değerlendirme
 

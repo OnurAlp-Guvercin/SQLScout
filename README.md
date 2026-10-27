@@ -61,11 +61,9 @@ Every part of the flow is always on. Details: [docs/en/CODE_STRUCTURE.md](docs/e
 
 ## Status
 
-The system was built in small, numbered stages; each stage adds one piece and is verified by tests.
-
 - ✅ All 8 steps of the flow, on BIRD.
-- ⏳ **Measurements:** not taken yet. Development runs use a local Qwen3.5-0.8B policy and a Qwen3.5-9B teacher on the API; the paper's numbers will use local Qwen3.5-4B / Qwen3.6-27B.
-- ⏸ **Later:** training the agent inside the harness with the experience log (SFT → on-policy distillation → RL).
+- ⏭ **Next:** training the agent inside the harness with the experience log (SFT → on-policy distillation → RL).
+- ⏸ **Later:** the paper's numbers with local models (Qwen3.5-4B policy). Development runs use a local Qwen3.5-0.8B policy and a Qwen3.5-9B teacher on the API.
 
 ## Running
 
@@ -99,7 +97,7 @@ The model addresses and names are in `config.py`; running the teacher locally, o
 
 English:
 - [docs/en/AGENTIC_FLOW.md](docs/en/AGENTIC_FLOW.md): the flow step by step, glossary, design decisions and references
-- [docs/en/CODE_STRUCTURE.md](docs/en/CODE_STRUCTURE.md): code rules, file map, tools, constants, record formats, build stages
+- [docs/en/CODE_STRUCTURE.md](docs/en/CODE_STRUCTURE.md): code rules, file map, tools, constants, record formats, next stages
 - [docs/en/RESEARCH.md](docs/en/RESEARCH.md): literature review, datasets, hyperparameters
 
 The originals are in Turkish: [docs/AGENTIC_FLOW.md](docs/AGENTIC_FLOW.md), [docs/KOD_YAPISI.md](docs/KOD_YAPISI.md), [docs/ARASTIRMA.md](docs/ARASTIRMA.md).
