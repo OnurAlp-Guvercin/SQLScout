@@ -42,3 +42,9 @@ def test_profile(db):
 
     assert columns["price"]["min"] == 0
     assert columns["price"]["max"] == 149 * 1.5
+
+
+def test_names_that_are_sql_words_are_quoted():
+    assert sqlite_schema.show_name("order") == "`order`"  # financial veritabanındaki tablo
+    assert sqlite_schema.show_name("Free Meal Count") == "`Free Meal Count`"
+    assert sqlite_schema.show_name("orders") == "orders"

@@ -4,7 +4,8 @@ Model İngilizce okuduğu için metinler İngilizce."""
 import config
 
 SQL_RULES = """Rules:
-- Use only tables and columns shown in the schema. Put names with spaces or special characters in backticks.
+- Use only tables and columns shown in the schema. Write names as the schema writes them: names with \
+spaces, special characters or SQL keywords are in backticks (e.g. `order`).
 - The user may spell a value differently from the database: a typo, other upper/lower case, an abbreviation or \
 another word for it. Write values exactly as the database writes them (value samples, evidence or search results), \
 not as the question writes them.
@@ -46,8 +47,7 @@ TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over
 Everything it tried is above. Continue from here: you have a new budget of {budget} tool calls. \
 When you know the SQL query that answers the question, call `submit` with it."""
 
-# Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur. Agent SQL'i mesajında ```sql bloğu
-# olarak yazarsa o da execute_sql sayılır (harness/guards.py read_tool_call).
+# Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
 SEARCH_VALUES = {"type": "function", "function": {
     "name": "search_values",
     "description": "Find database values that contain the given text or are spelled like it, with their table and "

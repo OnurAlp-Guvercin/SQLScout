@@ -42,17 +42,17 @@ def test_broken_output_is_rejected_and_counted(db, fake_model):
     replies += [text_reply("The answer is 150."), execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
     assert answer["label"] == "ok" and answer["tool_calls"] == 3  # reddedilen cevap da budget'tan düştü
-    assert observation(seen[1][-1]).startswith("Rejected: your reply was not a tool call")
+    assert observation(seen[1][-1]).startswith("Rejected: no valid tool call was found")
 
 
 def test_no_progress_hands_over_early(db, fake_model):
     replies, seen = fake_model
     replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["handoff_reason"] == "ilerleme yok"  # dolu sonuç veren SQL yok: budget bitmeden teacher devraldı
+    assert answer["handoff_reason"] == f"no query returned rows in the first {config.PROGRESS_CALLS} calls"
     assert answer["tool_calls"] == config.PROGRESS_CALLS + config.MAX_TOOL_CALLS // 2  # teacher yarım budget alır
     assert observation(seen[config.PROGRESS_CALLS][-1]).startswith("A smaller agent worked on this question")
-    assert answer["label"] == "no_answer" and answer["sql"] is None  # hiçbir SQL çalışmadı
+    assert answer["label"] == "no_answer" and answer["sql"] is None  # hiçbir SQL submit edilmedi
 
 
 def test_error_and_empty_result_go_back_to_agent(db, fake_model):
@@ -75,13 +75,15 @@ def test_long_result_says_how_many_rows_are_shown(db, fake_model):
     assert len(text.splitlines()) == 2 + config.SHOWN_ROWS  # başlık ve satırlar
 
 
-def test_fallback_uses_the_last_sql_that_returned_rows(db, fake_model):
+def test_explored_queries_are_never_an_answer(db, fake_model):
     replies, _ = fake_model
     replies += [execute_reply(COUNT_SQL), execute_reply(EMPTY_SQL)]
     replies += [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS - 2) + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["handoff_reason"] == "budget bitti"
-    assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL  # boş sonuç veren SQL fallback olmaz
+    assert answer["handoff_reason"] == "the tool-call budget ran out"
+    assert answer["label"] == "no_answer" and answer["sql"] is None  # hiçbir SQL submit edilmedi
+    assert answer["error_message"] == ("No answer: no SQL query that runs without error was submitted (handoff "
+                                       "reason: the tool-call budget ran out; teacher: the tool-call budget ran out).")
 
 
 def test_repeated_sql_is_not_run_again(db, fake_model):
@@ -90,7 +92,7 @@ def test_repeated_sql_is_not_run_again(db, fake_model):
                 submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
     assert answer["executions"] == 1 and answer["tool_calls"] == 3  # tekrar çalıştırılmadı ama budget'tan düştü
-    assert observation(seen[2][-1]) == "Not run again: you already made this exact call and its result will not " \
+    assert observation(seen[2][-1]) == "Not run again: this exact call was already made and its result will not " \
                                      "change. Try a different query, or submit your answer. Its result was:\n" \
                                      "Columns: COUNT(*)\n1 rows:\n150"
 
@@ -125,7 +127,7 @@ def test_final_check_failing_twice_hands_over(db, fake_model):
     replies, _ = fake_model
     replies += [submit_reply("SELECT town FROM items"), submit_reply("SELECT town FROM items")] + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["handoff_reason"] == "final check 2 kez geçmedi"
+    assert answer["handoff_reason"] == f"the final check failed {config.FINAL_CHECK_TRIES} times"
     assert answer["label"] == "no_answer"
 
 
@@ -168,7 +170,7 @@ def test_third_repeat_of_the_same_call_hands_over(db, fake_model):
     replies, _ = fake_model
     replies += [execute_reply(COUNT_SQL)] * (config.MAX_REPEATS + 1) + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["handoff_reason"] == "aynı çağrı 3 kez tekrarlandı"
+    assert answer["handoff_reason"] == f"the same call was repeated {config.MAX_REPEATS} times"
     assert answer["steps"][config.MAX_REPEATS]["result"] == "Handoff: the same call was repeated too many times."
 
 
@@ -187,10 +189,10 @@ def test_stuck_agent_samples_its_next_step(db, fake_model, monkeypatch):
     temperatures = []
     fake = llm.chat
 
-    def recording(messages, tools=None, seed=None, temperature=None, model=None):
+    def recording(messages, tools=None, temperature=None, model=None):
         if tools:  # yalnızca agent'ın adımları; teacher kontrolü kendi temperature'ıyla çalışır
             temperatures.append(temperature)
-        return fake(messages, tools=tools, seed=seed, temperature=temperature, model=model)
+        return fake(messages, tools=tools, temperature=temperature, model=model)
 
     monkeypatch.setattr(llm, "chat", recording)
     loop.answer_question("How many items?", "", db)
@@ -204,14 +206,97 @@ def test_answer_the_teacher_does_not_approve_hands_over(db, fake_model, monkeypa
     replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL),  # agent: teacher onaylamadı
                 execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: kendi submit'i kontrol edilmez
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["handoff_reason"] == "teacher cevabı onaylamadı"
+    assert answer["handoff_reason"] == "a reviewer judged the submitted query to be wrong"
     assert observation(seen[2][-1]).startswith("A smaller agent worked on this question and handed it over to you.")
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
 
 
-def test_fallback_says_who_ran_the_query(db, fake_model):
+def test_rejected_answer_is_the_fallback_when_the_teacher_cannot_solve_it(db, fake_model, monkeypatch):
+    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: False)
     replies, _ = fake_model
-    replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS  # agent: ilerleme yok
-    replies += [execute_reply(COUNT_SQL)] + [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS // 2 - 1)
+    replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)] + teacher_gives_up()
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL and answer["answered_by"] == "agent"
+
+
+def test_fallback_is_the_last_submitted_sql(db, fake_model, monkeypatch):
+    """Teacher sonucunu görmediği bir SQL submit edip ikinci kez submit etmeden budget'ı biterse fallback o SQL olur."""
+    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: False)
+    replies, _ = fake_model
+    replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL)]  # agent: teacher onaylamadı
+    replies += [submit_reply(COUNT_SQL)] + [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS // 2 - 1)
     answer = loop.answer_question("How many items?", "", db)
     assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL and answer["answered_by"] == "teacher"
+
+
+def test_submit_without_the_semicolon_counts_as_seen(db, fake_model):
+    replies, _ = fake_model
+    replies += [execute_reply(COUNT_SQL + ";"), submit_reply(COUNT_SQL)]
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "ok" and answer["tool_calls"] == 2  # "sonucu görmedin" denmedi, hak boşa gitmedi
+
+
+def test_teacher_starts_with_temperature_zero_after_a_stuck_agent(db, fake_model, monkeypatch):
+    replies, _ = fake_model
+    replies += [execute_reply(COUNT_SQL)] * (config.MAX_REPEATS + 1)  # agent takıldı; son adımları örneklendi
+    replies += [submit_reply(COUNT_SQL)]  # teacher
+    calls = []
+    fake = llm.chat
+
+    def recording(messages, tools=None, temperature=None, model=None):
+        if tools:
+            calls.append((model, temperature))
+        return fake(messages, tools=tools, temperature=temperature, model=model)
+
+    monkeypatch.setattr(llm, "chat", recording)
+    loop.answer_question("How many items?", "", db)
+    assert calls[-2][1] == config.RETRY_TEMPERATURE  # agent'ın son adımı
+    assert calls[-1] == (config.TEACHER_MODEL, None)  # teacher'ın ilk adımı temperature 0
+
+
+def test_teacher_takeover_message_is_english(db, fake_model):
+    replies, seen = fake_model
+    replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS + teacher_gives_up()
+    loop.answer_question("How many items?", "", db)
+    takeover = observation(seen[config.PROGRESS_CALLS][-1])
+    assert f"Reason: no query returned rows in the first {config.PROGRESS_CALLS} calls." in takeover
+
+
+def test_fallback_is_kept_when_the_teacher_cannot_be_reached(db, fake_model, monkeypatch):
+    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: False)
+    replies, _ = fake_model
+    replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
+    fake = llm.chat
+
+    def teacher_down(messages, tools=None, temperature=None, model=None):
+        if model == config.TEACHER_MODEL:
+            raise RuntimeError("Modele ulaşılamadı")
+        return fake(messages, tools=tools, temperature=temperature, model=model)
+
+    monkeypatch.setattr(llm, "chat", teacher_down)
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL  # agent'ın submit ettiği SQL kaybolmadı
+    assert answer["teacher_error"] == "Modele ulaşılamadı"
+    record = json.loads(config.EXPERIENCE_LOG.read_text())
+    assert record["teacher_error"] == "Modele ulaşılamadı"
+
+
+def test_teacher_gets_its_own_final_check_tries_and_sees_the_last_error(db, fake_model):
+    replies, seen = fake_model
+    broken = "SELECT town FROM items"
+    replies += [execute_reply(COUNT_SQL), submit_reply(broken), submit_reply(broken)]  # agent: 2 kez geçmedi
+    replies += [submit_reply(broken), submit_reply(COUNT_SQL)]  # teacher: bir hata, sonra doğru cevap
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "ok" and answer["answered_by"] == "teacher"
+    handoff = seen[3][-2]["content"]  # agent'ın ikinci hatalı submit'inin sonucu, teacher'ın gördüğü
+    assert handoff.startswith("Final check failed: Rejected before running: no such column: town")
+    assert handoff.endswith(f"Handoff: the final check failed {config.FINAL_CHECK_TRIES} times.")
+
+
+def test_no_answer_says_why_the_teacher_stopped(db, fake_model):
+    replies, _ = fake_model
+    replies += [text_reply("I am not sure.")] * config.PROGRESS_CALLS
+    replies += [execute_reply(COUNT_SQL)] * (config.MAX_REPEATS + 1)  # teacher takıldı
+    answer = loop.answer_question("How many items?", "", db)
+    assert answer["label"] == "no_answer" and answer["answered_by"] is None
+    assert answer["teacher_stop_reason"] == f"the same call was repeated {config.MAX_REPEATS} times"

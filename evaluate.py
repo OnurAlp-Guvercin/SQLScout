@@ -1,7 +1,6 @@
-"""BIRD dev'i bir seed'le çalıştırır, BIRD kuralıyla puanlar (result key) ve sonucu
-results/<deney>_seed<n>.jsonl'a yazar. Experience log'u agent/loop.py yazar; buradan split, question_id ve cevabın
-doğru olup olmadığı eklenir.
-Kullanım: python evaluate.py --name <deney> --seed 0 [--limit n]
+"""BIRD dev'i çalıştırır, BIRD kuralıyla puanlar (result key) ve sonucu results/<deney>.jsonl'a yazar.
+Experience log'u agent/loop.py yazar; buradan split, question_id ve cevabın doğru olup olmadığı eklenir.
+Kullanım: python evaluate.py --name <deney> [--limit n]
 (--limit n: soruların sabit bir örneklemi; aynı n hep aynı soruları seçer)."""
 
 import argparse
@@ -39,37 +38,40 @@ def database_path(db_id):
     return config.BIRD_DEV_DIR / "dev_databases" / db_id / f"{db_id}.sqlite"
 
 
-def score(db_path, sql, gold_sql):
-    """BIRD kuralı: cevabın result key'i gold SQL'inkiyle aynıysa doğru. Return: (doğru mu, gold'un hatası)."""
-    gold = sqlite_db.execute(db_path, gold_sql)
+def run_gold(question):
+    """Gold SQL'in sonucu; soru başına bir kez, ana sorgu süre sınırıyla (ANSWER_TIMEOUT_SECONDS). BIRD dev'in en yavaş
+    gold'u ~153 sn sürüyor."""
+    return sqlite_db.execute(question["db_path"], question["SQL"], config.ANSWER_TIMEOUT_SECONDS)
+
+
+def is_correct(db_path, sql, gold):
+    """BIRD kuralı: cevabın result key'i gold SQL'inkiyle aynıysa doğru. Gold hata verdiyse hiçbir cevap doğru değil."""
     if not gold["ok"]:
-        return False, gold["error"]
-    answer = sqlite_db.execute(db_path, sql)
-    return answer["ok"] and answer["result_key"] == gold["result_key"], None
+        return False
+    answer = sqlite_db.execute(db_path, sql, config.ANSWER_TIMEOUT_SECONDS)
+    return answer["ok"] and answer["result_key"] == gold["result_key"]
 
 
-def answer_question(question, seed):
-    """Gold SQL yalnızca puanlamada kullanılır: agent'a gitmez, experience log'a not olarak yazılır."""
+def run_one(question):
+    """Bir soruyu cevaplar ve puanlar; sonuç dosyasının bir satırını return eder. Gold SQL yalnızca puanlamada
+    kullanılır: agent'a gitmez, experience log'a not olarak yazılır."""
+    start = time.monotonic()
+    row = {"question_id": question["question_id"], "db_id": question["db_id"]}
+    gold = run_gold(question)
+    if not gold["ok"]:
+        row["gold_error"] = gold["error"]
     tags = {"split": "dev", "dataset": "bird", "question_id": question["question_id"], "gold_sql": question["SQL"]}
 
     def check(sql):
-        return score(question["db_path"], sql, question["SQL"])[0]
-    return loop.answer_question(question["question"], question["evidence"], question["db_path"], seed, tags, check)
+        return is_correct(question["db_path"], sql, gold)
 
-
-def run_one(question, seed):
-    """Bir soruyu cevaplar ve puanlar; sonuç dosyasının bir satırını return eder."""
-    start = time.monotonic()
-    row = {"question_id": question["question_id"], "db_id": question["db_id"]}
     try:
-        row.update(answer_question(question, seed))
-        if row["sql"] is None:  # no_answer
-            correct, gold_error = False, None
-        else:
-            correct, gold_error = score(question["db_path"], row["sql"], question["SQL"])
-        row["correct"] = correct
-        if gold_error:
-            row["gold_error"] = gold_error
+        row.update(loop.answer_question(question["question"], question["evidence"], question["db_path"], tags, check))
+        row["correct"] = bool(row["correct"])  # no_answer: None → False
+        teacher_check = row["teacher_check"]
+        if teacher_check:  # teacher'ın onayladığı ya da reddettiği SQL doğru muydu? Cevapla aynıysa yeniden çalışmaz
+            same = teacher_check["sql"] == row["sql"]
+            teacher_check["correct"] = row["correct"] if same else check(teacher_check["sql"])
     except RuntimeError as error:  # ör. API birkaç denemeye rağmen cevap vermedi
         row["correct"] = False
         row["error"] = str(error)
@@ -83,7 +85,7 @@ def experiment_header(args, question_count):
         if name.isupper():
             settings[name] = str(value) if isinstance(value, Path) else value
     prompt_texts = {name: value for name, value in vars(prompts).items() if name.isupper()}
-    return {"experiment": args.name, "seed": args.seed, "dataset": "bird", "split": "dev",
+    return {"experiment": args.name, "dataset": "bird", "split": "dev",
             "limit": args.limit, "question_count": question_count, "config": settings,
             "prompts": prompt_texts}
 
@@ -91,19 +93,18 @@ def experiment_header(args, question_count):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", required=True)
-    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
 
     questions = sample(load_questions(), args.limit)
     config.RESULTS_DIR.mkdir(exist_ok=True)
-    out_path = config.RESULTS_DIR / f"{args.name}_seed{args.seed}.jsonl"
+    out_path = config.RESULTS_DIR / f"{args.name}.jsonl"
 
     start = time.monotonic()
     rows = []
     with open(out_path, "w") as out, ThreadPoolExecutor(config.EVAL_WORKERS) as pool:
         out.write(json.dumps(experiment_header(args, len(questions))) + "\n")
-        for row in pool.map(lambda question: run_one(question, args.seed), questions):
+        for row in pool.map(run_one, questions):
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
             rows.append(row)
             if len(rows) % 10 == 0:

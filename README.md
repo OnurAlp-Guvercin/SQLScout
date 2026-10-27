@@ -21,7 +21,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 3 | Search for values | Harness | `search_values`: how a value is written and in which column |
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try, or a small query to check something it is not sure about |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
-| 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty, a note suggests checking the value's spelling with `search_values` |
+| 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty or only 0/NULL, a note suggests checking the value's spelling with `search_values` |
 | 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
 | 8 | Handoff | Teacher | No progress in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher continues from where the agent stopped, with 5 tool calls |
 
@@ -85,7 +85,7 @@ mlx_lm.server --model Qwen/Qwen3.5-0.8B --port 8080 --chat-template-args '{"enab
 python run.py --db data/bird/dev/dev_databases/california_schools/california_schools.sqlite "How many schools are in Alameda county?"
 
 # Evaluation and the base on the same questions
-python evaluate.py --name trial --seed 0 --limit 10
+python evaluate.py --name trial --limit 10
 python baseline.py --name trial_base --limit 10
 python report.py results/trial*.jsonl
 

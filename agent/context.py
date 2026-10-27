@@ -18,7 +18,6 @@ class Context:
     question: str
     evidence: str
     db_path: str
-    seed: int = None
 
     # Konuşma: modelin gördüğü mesajlar ve sonuç dosyasına yazılan adımlar
     messages: list = field(default_factory=list)
@@ -32,9 +31,15 @@ class Context:
     seen: set = field(default_factory=set)  # sonucunu agent'ın gördüğü SQL'ler (execute_sql.sql_key); submit buna bakar
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
-    last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; fallback answer'da kullanılır
-    last_ok_by: str = None  # last_ok_sql'i kim çalıştırdı: agent ya da teacher
-    handoff_reason: str = None
+    last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; ilerleme sınırı (adım 2) buna bakar
+    submitted_sql: str = None  # submit edilen ve final check'ten geçen son SQL; fallback answer bu (düşük güven)
+    submitted_by: str = None  # submitted_sql'i kim submit etti: agent ya da teacher
+    handoff_reason: str = None  # agent'ın döngüsü neden durdu (teacher'a geçiş nedeni)
+    teacher_stop_reason: str = None  # teacher'ın döngüsü neden durdu (cevap kabul edilmeden)
+
+    # Teacher (adım 7, 8): sonuç dosyasına yazılır
+    teacher_check: dict = None  # agent'ın submit ettiği SQL ve teacher'ın kararı: {"sql", "approved"}
+    teacher_error: str = None  # teacher'ın API'si birkaç denemeye rağmen cevap vermediyse hata; cevap yine de döner
 
     # Ölçüm sayaçları (new_stats)
     stats: dict = field(default_factory=new_stats)
@@ -61,8 +66,11 @@ class Context:
         for name in ("prompt_tokens", "completion_tokens", "cost"):
             self.stats[name] += reply.get(name) or 0
 
-    def answer(self, sql, label, answered_by="agent"):
-        """Sorunun sonucu: cevap, label ve sonuç dosyasına yazılacak her şey."""
-        return {"sql": sql, "label": label, "answered_by": answered_by, "tool_calls": self.calls, **self.stats,
-                "cost": round(self.stats["cost"], 6),
-                "handoff_reason": self.handoff_reason, "steps": self.steps}
+    def answer(self, sql, label, answered_by="agent", error_message=None):
+        """Sorunun sonucu: cevap, label ve sonuç dosyasına yazılacak her şey. error_message yalnızca cevap yoksa
+        (no_answer) dolu: neden cevap olmadığı."""
+        return {"sql": sql, "label": label, "answered_by": answered_by, "error_message": error_message,
+                "tool_calls": self.calls, **self.stats, "cost": round(self.stats["cost"], 6),
+                "handoff_reason": self.handoff_reason, "teacher_stop_reason": self.teacher_stop_reason,
+                "teacher_check": self.teacher_check,
+                "teacher_error": self.teacher_error, "steps": self.steps}

@@ -50,3 +50,12 @@ def test_many_values_show_most_common_without_counts(bird_db, monkeypatch):
 def test_profiles_are_saved_once(bird_db):
     prepare.build_context(QUESTION, EVIDENCE, bird_db)
     assert (config.PREPARED_DIR / "shop" / "profiles.json").exists()
+
+
+def test_near_unique_text_columns_show_fewer_samples(bird_db, monkeypatch):
+    """Her satırı farklı bir metin sütunu (ör. isim) az örnekle gösterilir; az değerli sütunlar etkilenmez."""
+    monkeypatch.setattr(config, "PROFILE_TOP_VALUES", 2)
+    monkeypatch.setattr(config, "PROFILE_UNIQUE_VALUES", 1)
+    context = prepare.build_context(QUESTION, EVIDENCE, bird_db)
+    assert "- name TEXT; store name. • name on the door; e.g. 'Store 0'\n" in context  # 3 satır, 3 farklı değer
+    assert "- city TEXT; Shop city; e.g. 'Boston', 'Chicago'\n" in context  # 150 satır, 3 farklı değer

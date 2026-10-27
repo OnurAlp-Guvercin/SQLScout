@@ -4,6 +4,7 @@ Kullanım: python run.py --db <sqlite yolu> "soru" [--evidence "..."]"""
 import argparse
 import json
 
+import config
 from agent import loop
 from db import sqlite_db
 
@@ -22,11 +23,13 @@ def main():
           f" | {answer['prompt_tokens']} + {answer['completion_tokens']} token, ${answer['cost']:.4f}")
     if answer["handoff_reason"]:
         print(f"Handoff nedeni: {answer['handoff_reason']}")
+    if answer["teacher_error"]:
+        print(f"Teacher'a ulaşılamadı: {answer['teacher_error']}")
     if answer["sql"] is None:
-        print("Cevap yok.")
+        print(answer["error_message"])
         return
     print(f"SQL: {answer['sql']}")
-    result = sqlite_db.execute(args.db, answer["sql"])
+    result = sqlite_db.execute(args.db, answer["sql"], config.ANSWER_TIMEOUT_SECONDS)
     if not result["ok"]:
         print(f"Hata: {result['error']}")
         return

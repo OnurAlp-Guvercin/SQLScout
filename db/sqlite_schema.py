@@ -33,9 +33,19 @@ def schema(db_path):
     return tables
 
 
+# Tırnaksız yazılınca tablo adı ya da alias olamayan SQL kelimeleri (ör. ORDER BY, veritabanında order tablosu olsa da).
+SQL_WORDS = {"select", "from", "where", "join", "inner", "left", "right", "full", "outer", "cross", "natural", "on",
+             "using", "group", "order", "by", "having", "limit", "offset", "union", "except", "intersect", "and", "or",
+             "not", "in", "is", "as", "case", "when", "then", "else", "end", "distinct", "between", "like", "null",
+             "window", "values", "table", "index", "key", "check", "default", "references", "primary"}
+
+
 def show_name(name):
-    """Adı SQL'de yazılacağı gibi gösterir: düz adlar olduğu gibi, boşluklu ya da özel karakterli adlar backtick içinde."""
-    return name if name.isidentifier() else f"`{name}`"
+    """Adı SQL'de yazılacağı gibi gösterir: düz adlar olduğu gibi; boşluklu, özel karakterli ya da SQL kelimesi olan
+    adlar (ör. financial'daki order tablosu) backtick içinde."""
+    if name.isidentifier() and name.lower() not in SQL_WORDS:
+        return name
+    return f"`{name}`"
 
 
 def primary_key_of(conn, table):

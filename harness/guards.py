@@ -1,7 +1,9 @@
 """Guardrail'ler: harness'ın agent'ı küçük modellerin tipik hatalarından koruyan kuralları (her adım): bozuk çıktının
-reddi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın sıkıştırılması. Uzun sonucun kırpılması harness/tools/execute_sql.py'de (trim_rows)."""
+reddi, SQL argument'ının temizlenmesi, aynı çağrının tekrarı (3. tekrarda handoff, agent/loop.py), bağlamın
+sıkıştırılması. Uzun sonucun kırpılması harness/tools/execute_sql.py'de (trim_rows)."""
 
 import json
+import re
 import uuid
 
 import config
@@ -9,14 +11,18 @@ from agent import llm
 from harness.tools import execute_sql
 
 SHORTENED = "[Old result, shortened] "
+CODE_FENCE = re.compile(r"^(?:```(?:sqlite|sql)?)?\s*(.*?)\s*(?:```.*)?$", re.DOTALL | re.IGNORECASE)
+LEADING_COMMENTS = re.compile(r"^(?:\s*(?:--[^\n]*|/\*.*?\*/))*", re.DOTALL)
 
 
 def read_tool_call(reply, tools):
     """Modelin cevabını tek bir tool call olarak okur. Okunamazsa step["error"] dolu olur: istek reddedilir, hata agent'a
-    gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır."""
+    gider ve budget yine düşer. Birden çok tool call varsa yalnızca ilki alınır. SQL argument'ı temizlenir (clean_sql).
+    Model sunucusu biçimi bozuk tool call'u sessizce atar; o zaman da cevap "tool call yok" görünür."""
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
-        step["error"] = "Rejected: your reply was not a tool call. Call exactly one of the tools."
+        step["error"] = ("Rejected: no valid tool call was found in your reply. Call exactly one of the tools, in the "
+                         "tool-call format.")
         return step
 
     call = reply["tool_calls"][0]
@@ -44,6 +50,8 @@ def read_tool_call(reply, tools):
         step["arguments"] = "{}"
         step["error"] = f"Rejected: the arguments of '{step['tool']}' are not a valid JSON object."
         return step
+    if isinstance(args.get("sql"), str):
+        args["sql"] = clean_sql(args["sql"])
     missing = [name for name in schema["required"] if is_empty(args.get(name))]
     if missing:
         step["error"] = f"Rejected: '{step['tool']}' needs a non-empty value for: {', '.join(missing)}."
@@ -51,6 +59,14 @@ def read_tool_call(reply, tools):
 
     step["args"] = args
     return step
+
+
+def clean_sql(sql):
+    """SQL'in etrafındaki ```sql ... ``` işaretlerini (kapanıştan sonraki açıklama metniyle birlikte) ve baştaki --
+    ya da /* */ yorumlarını atar. Küçük modeller bunları sık ekler; atılmazsa okuma sorgusu "SELECT ile başlamıyor" diye
+    reddedilir. Ör. "```sql\nSELECT 1\n```" → "SELECT 1". Base de (baseline.py) modelin SQL'ini bununla temizler."""
+    text = CODE_FENCE.match(sql.strip()).group(1)
+    return LEADING_COMMENTS.sub("", text, count=1).strip()
 
 
 def is_empty(value):
@@ -77,7 +93,7 @@ def earlier_calls(step, context):
 
 
 def repeat_note(earlier):
-    return ("Not run again: you already made this exact call and its result will not change. Try a different query, "
+    return ("Not run again: this exact call was already made and its result will not change. Try a different query, "
             "or submit your answer. Its result was:\n" + earlier[0]["result"])
 
 

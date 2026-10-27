@@ -120,7 +120,7 @@ arrow([(1146,746),(1222,746)],'k'); label(1186,746,'run','k')
 
 
 
-node(822,900,324,104,'harness','Result','At most 20 rows · if empty: check the value\'s spelling with <i>search_values</i>',tsize=18)
+node(822,900,324,104,'harness','Result','At most 20 rows · if empty or only 0/NULL: check the value\'s spelling with <i>search_values</i>',tsize=18)
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
@@ -132,7 +132,7 @@ node(1574,1040,324,110,'teacher','Teacher','Takes the agent\'s context and conti
 arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice or teacher says no','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'the teacher\'s submit goes here too','t')
 
-node(1222,1230,300,100,'io','Answer','<i>ok</i> · <i>fallback</i> if it failed<br><i>no_answer</i> if no SQL returned rows',shape='pill',tsize=20)
+node(1222,1230,300,100,'io','Answer','<i>ok</i> · <i>fallback</i> if it failed<br><i>no_answer</i> if no SQL was submitted',shape='pill',tsize=20)
 arrow([(984,1164),(984,1280),(1218,1280)],'p'); label(1100,1280,'passed','p')
 
 

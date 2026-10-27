@@ -8,7 +8,7 @@ Küçük bir policy agent soruyu tool'larla çözer: değer arar, SQL dener, son
 
 **Deneyler (kullanıcı kararı):** Uzun ölçüm yapılmaz: bir test için 10 soru yeter (`--limit 10`); kullanıcı istemedikçe büyük ölçüm alınmaz, kod değişikliğinin doğruluğu testlerle ve tek bir gerçek soruyla (`run.py`) gösterilir.
 
-**Modeller:** Policy yerel `mlx_lm.server`'daki `Qwen/Qwen3.5-0.8B`; teacher OpenRouter'daki `qwen/qwen3.5-9b`, bf16 sunan sağlayıcılardan biri (`TEACHER_PROVIDERS`: DeepInfra, PrimeIntellect, Parasail; DeepInfra tek başına sık sık 429 `engine_overloaded` veriyor). Yerel sunucu aynı anda gelen istekleri tek batch'te üretir; seed'li istekler batch'e girmediği için seed gönderilmez (`SEND_SEED`). Policy ve teacher temperature 0 ile çalışır; son çağrı reddedildiyse ya da tekrarsa sıradaki adım 0.7 ile örneklenir. Teacher'ı da yerelde çalıştırmak ya da policy'yi API'ye almak `config.py`'deki yorumdadır. Ücretsiz `nvidia/nemotron-3.5-lightning:free` denendi: çok yavaş, kullanılmıyor. Makale rakamları en sonda yerel Qwen3.5-4B ile alınır (aşama 35).
+**Modeller:** Policy yerel `mlx_lm.server`'daki `Qwen/Qwen3.5-0.8B`; teacher OpenRouter'daki `qwen/qwen3.5-9b`, bf16 sunan sağlayıcılardan biri (`TEACHER_PROVIDERS`: DeepInfra, PrimeIntellect, Parasail; DeepInfra tek başına sık sık 429 `engine_overloaded` veriyor). Yerel sunucu aynı anda gelen istekleri tek batch'te üretir. Policy ve teacher temperature 0 ile çalışır; son çağrı reddedildiyse ya da tekrarsa sıradaki adım 0.7 ile örneklenir. Teacher'ı da yerelde çalıştırmak ya da policy'yi API'ye almak `config.py`'deki yorumdadır. Ücretsiz `nvidia/nemotron-3.5-lightning:free` denendi: çok yavaş, kullanılmıyor. Makale rakamları en sonda yerel Qwen3.5-4B ile alınır (aşama 35).
 
 BIRD dev `data/bird/dev/` altında; column profile'ları `data/prepared/<db_id>/` altında. `evaluate.py` soruları aynı anda 8 tane çalıştırır (`EVAL_WORKERS`; API'de 4, 8'de sağlayıcı 429 hatası verdi). Kod küçük aşamalarla yazılır ve her aşamadan sonra kullanıcının onayı beklenir. Yerel sunucuda 8 soru paralel çalışırken uzun süre açık kalan sunucu bir kez GPU belleğini doldurdu (`Insufficient Memory`); sunucuyu yeniden başlatmak çözdü. Ölçüm çıktısı bir boruya (`| grep`) verilmez: boruyu okuyan süreç kapanırsa evaluate.py ilerleme satırında çöker; çıktı doğrudan dosyaya yazılır. Depo: github.com/OnurAlp-Guvercin/foresql (push'u kullanıcı yapar; `.gitignore` `.env` ve `data/`'yı dışarıda bırakır).
 
@@ -28,11 +28,11 @@ BIRD dev `data/bird/dev/` altında; column profile'ları `data/prepared/<db_id>/
 | `uv venv --python 3.12 && source .venv/bin/activate` | Sanal ortam: Python 3.12.13, SQLite 3.53.1, FTS5 trigram var (doğrulandı). Sistemdeki Python 3.14 kullanılmaz |
 | `uv pip install -r requirements.txt` | Bağımlılıklar |
 | `python run.py --db <sqlite yolu> "soru" [--evidence "..."]` | Tek bir soruyu çalıştırır: agent'ın her adımını, cevabı ve cevabın gerçek sonucunu yazar |
-| `python evaluate.py --name <deney> --seed 0 [--limit n]` | BIRD dev'i (`--limit n`: soruların sabit bir örneklemi; aynı n hep aynı soruları seçer) çalıştırıp puanlar, `results/<deney>_seed<n>.jsonl`'a yazar; doğruluk, süre ve maliyeti özetler |
+| `python evaluate.py --name <deney> [--limit n]` | BIRD dev'i (`--limit n`: soruların sabit bir örneklemi; aynı n hep aynı soruları seçer) çalıştırıp puanlar, `results/<deney>.jsonl`'a yazar; doğruluk, süre ve maliyeti özetler |
 | `python baseline.py --name <deney> [--model <model>] [--limit n]` | Base: aynı sorularda tool'suz tek SQL (temperature 0); agentic sistemle karşılaştırmak için. Teacher modeli verilirse API'ye gider |
 | `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` | Bir sorunun başlangıç bağlamını (adım 1) yazdırır |
 | `mlx_lm.server --model Qwen/Qwen3.5-0.8B --port 8080 --chat-template-args '{"enable_thinking":false}'` | Yerel model sunucusu (policy buraya gider; teacher OpenRouter API'sine). Sonda `mlx-community/Qwen3.5-4B-bf16` ile çalıştırılır. Kullanıcı ayrı bir terminalde başlatır. Model ilk seferde indirilir (0.8B ~1.7 GB, 4B ~9 GB); Xet takılırsa önce `HF_HUB_DISABLE_XET=1 hf download <model>` |
-| `python report.py results/<deney>_*.jsonl` | Birden çok sonuç dosyasını (ör. seed'ler) tek tabloda özetler |
+| `python report.py results/<deney>*.jsonl` | Birden çok sonuç dosyasını (ör. tekrar koşular) tek tabloda özetler |
 | `python -m agent.llm "soru"` | Modele tek bir soru sorar; cevabı, sağlayıcıyı ve hızı yazar |
 | `pytest tests/` | Testler (`pytest.ini` proje kökünü import yoluna ekler). `test_api_answers` API'ye gerçek bir istek atar; atlamak için `--deselect tests/test_llm.py::test_api_answers` |
 | `python3 docs/diyagram/akis_diyagrami.py` | Akış görselinin HTML'ini üretir; PNG'ye çevirme komutu dosyanın başında. İngilizcesi `docs/diyagram/flow_diagram_en.py` |
@@ -46,10 +46,10 @@ BIRD dev `data/bird/dev/` altında; column profile'ları `data/prepared/<db_id>/
 
 ## Araştırma kuralları (ICML)
 
-- **Her deney tekrar üretilebilir olmalı:** config değerleri, seed ve model adları sonuç dosyasına yazılır. Sonuçlar `results/` altında, her deney ve seed için tek bir JSONL dosyasındadır.
+- **Her deney tekrar üretilebilir olmalı:** config değerleri ve model adları sonuç dosyasına yazılır. Sonuçlar `results/` altında, her deney (koşu) için tek bir JSONL dosyasındadır.
 - **Makaledeki her rakam gerçekten çalıştırılmış bir deneyden gelir.** Literatür rakamı ya da tahmin, sonuç olarak yazılmaz.
 - **Ablation'lar:** Bir parçanın katkısı ölçülmek istendiğinde o parçayı kapatan bir flag eklenir; şu an her parça hep açıktır.
-- **Karşılaştırmalar** en az 3 seed ile yapılır.
+- **Karşılaştırmalar** en az 3 tekrar koşuyla yapılır (her koşu ayrı bir `--name`).
 
 ## Dikkat
 

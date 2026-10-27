@@ -41,7 +41,7 @@ def fake_model(monkeypatch):
     girmez: sahte teacher her cevabı onaylar; onaylamamayı deneyen testler submit.teacher_approves'u değiştirir."""
     replies, seen = [], []
 
-    def fake_chat(messages, tools=None, seed=None, temperature=None, model=None):
+    def fake_chat(messages, tools=None, temperature=None, model=None):
         if messages[0]["content"] == prompts.CHECK_ANSWER:
             return text_reply("yes")
         seen.append(list(messages))

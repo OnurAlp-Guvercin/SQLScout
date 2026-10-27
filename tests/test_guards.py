@@ -23,7 +23,7 @@ def test_valid_call_is_read():
 
 def test_plain_text_is_rejected():
     step = guards.read_tool_call({"text": "The answer is 150.", "tool_calls": []}, TOOLS)
-    assert step["error"].startswith("Rejected: your reply was not a tool call")
+    assert step["error"].startswith("Rejected: no valid tool call was found")
     assert step["id"] is None
 
 
@@ -102,3 +102,18 @@ def test_oldest_observations_are_shortened_first(monkeypatch):
     assert messages[3]["content"] == "[Old result, shortened] Columns: id | 150 rows (first 20 shown)"
     assert messages[5]["content"] == observation  # sınırın altına inince durdu
     assert messages[1]["content"] == "context " * 50  # adım 1'in bağlamı kısaltılmaz
+
+
+def test_code_fences_and_comments_are_removed_from_sql():
+    step = guards.read_tool_call(reply_with("execute_sql", '{"sql": "```sql\\n-- count them\\nSELECT 1\\n```"}'), TOOLS)
+    assert step["error"] is None and step["args"]["sql"] == "SELECT 1"
+    assert guards.clean_sql("```sqlite\nSELECT 1") == "SELECT 1"  # kapanmamış blok
+    assert guards.clean_sql("SELECT 1\n```") == "SELECT 1"  # yalnızca kapanış işareti
+    assert guards.clean_sql("SELECT 1 -- son yorum kalır") == "SELECT 1 -- son yorum kalır"
+    empty = guards.read_tool_call(reply_with("submit", '{"sql": "```sql\\n```"}'), TOOLS)
+    assert empty["error"].startswith("Rejected: 'submit' needs a non-empty value")
+
+
+def test_block_comments_and_text_after_the_fence_are_removed():
+    assert guards.clean_sql("/* count items */\nSELECT COUNT(*) FROM items") == "SELECT COUNT(*) FROM items"
+    assert guards.clean_sql("```sql\nSELECT 1\n```\nThis counts rows.") == "SELECT 1"

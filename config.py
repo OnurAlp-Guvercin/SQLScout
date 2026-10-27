@@ -17,7 +17,7 @@ EVAL_WORKERS = 8  # aynı anda çalışan soru sayısı; yerel sunucu bunları b
 # teacher OpenRouter API'sindeki Qwen3.5-9B'dir (handoff'tan sonra, adım 8; key .env'de). Teacher'ı da yerelde
 # çalıştırmak için: TEACHER_MODEL = POLICY_MODEL, TEACHER_URL = LLM_URL, TEACHER_PROVIDERS = None.
 # Policy'yi de API'ye almak için: LLM_URL = TEACHER_URL, POLICY_MODEL = "qwen/qwen3.5-9b", POLICY_PROVIDERS = TEACHER_PROVIDERS,
-# SEND_SEED = True, EVAL_WORKERS = 4. Makale rakamları sonda yerel Qwen3.5-4B ile alınır.
+# EVAL_WORKERS = 4. Makale rakamları sonda yerel Qwen3.5-4B ile alınır.
 LLM_URL = "http://127.0.0.1:8080/v1"  # policy modelinin adresi
 TEACHER_URL = "https://openrouter.ai/api/v1"  # teacher modelinin adresi
 LLM_API_KEY_NAME = "OPENROUTER_API_KEY"  # key .env dosyasında durur; yalnızca https adreslerine gönderilir
@@ -26,7 +26,6 @@ TEACHER_MODEL = "qwen/qwen3.5-9b"  # handoff'tan sonra (adım 8)
 POLICY_PROVIDERS = None  # yerel sunucuda None
 # API'de model yalnızca bunlardan birinde, bf16 çalışır; biri yoğunsa (429) sıradakine geçilir
 TEACHER_PROVIDERS = ["deepinfra", "primeintellect", "parasail"]
-SEND_SEED = False  # yerel sunucu seed'li istekleri batch'e almaz, tek tek çalıştırır
 TOKENIZER_MODEL = "Qwen/Qwen3.5-9B"  # konuşmanın token'ları (CONVERSATION_MAX_TOKENS) bununla sayılır; yalnızca tokenizer indirilir
 POLICY_TEMPERATURE = 0  # policy ve teacher her adımda en olası cevabı seçer
 POLICY_TOP_P = 0.8
@@ -53,8 +52,10 @@ SEARCH_CANDIDATES = 200  # FTS5 index'ten benzerlik sıralamasına giden en fazl
 INDEX_VALUE_MAX_CHARS = 100  # bundan uzun metinler (ör. yorum gövdeleri) değer index'ine girmez
 
 # Veritabanı: gerçek çalıştırma (adım 6)
-QUERY_TIMEOUT_SECONDS = 30
+EXPLORE_TIMEOUT_SECONDS = 50  # execute_sql: keşif ve deneme sorguları
+ANSWER_TIMEOUT_SECONDS = 200  # ana sorgular: submit edilen SQL (final check) ve puanlamadaki gold ile cevap
 MAX_RESULT_ROWS = 100
+MAX_TOTAL_ROWS = 1_000_000  # bundan çok satır dönen sorgu hata sayılır (belleği korur); BIRD dev'in en büyük gold'u ~278 bin
 
 # Final check (adım 7)
 FINAL_CHECK_TRIES = 2  # 2 kez geçmezse handoff
@@ -65,3 +66,5 @@ EXPERIENCE_LOG = PROJECT_DIR / "experience" / "log.jsonl"
 # Column profile (adım 1)
 PROFILE_TOP_VALUES = 10  # metin sütunlarında en sık 10 değer (en fazla 10 farklı değer varsa hepsi); diğerlerini agent search_values ile bulur
 PROFILE_VALUE_MAX_CHARS = 40
+PROFILE_UNIQUE_RATIO = 0.9  # farklı değer sayısı dolu satırların en az bu oranıysa sütun neredeyse tekil (ID, isim)
+PROFILE_UNIQUE_VALUES = 3  # neredeyse tekil metin sütunlarında gösterilen örnek değer sayısı (token tasarrufu)

@@ -22,17 +22,21 @@ def is_read_only(sql):
     return sql.lstrip().upper().startswith(("SELECT", "WITH"))
 
 
-def error_result(message):
-    return {"ok": False, "error": message, "columns": [], "rows": [], "row_count": 0, "result_key": None}
+def error_result(message, timed_out=False):
+    return {"ok": False, "error": message, "timed_out": timed_out, "columns": [], "rows": [], "row_count": 0,
+            "result_key": None}
 
 
-def execute(db_path, sql):
-    """Sorguyu çalıştırır. Agent'a en fazla MAX_RESULT_ROWS satır return eder; result_key bütün satırlardan hesaplanır."""
+def execute(db_path, sql, timeout_seconds):
+    """Sorguyu en fazla timeout_seconds saniye çalıştırır (keşifte EXPLORE_TIMEOUT_SECONDS, ana sorguda
+    ANSWER_TIMEOUT_SECONDS). Agent'a en fazla MAX_RESULT_ROWS satır return eder; result_key bütün satırlardan
+    hesaplanır. Zaman aşımında timed_out True olur. MAX_TOTAL_ROWS'tan çok satır (ör. JOIN koşulu unutulmuş bir sorgu)
+    hata sayılır: bütün satırlar result_key için bellekte tutulur."""
     if not is_read_only(sql):
-        return error_result("Yalnızca SELECT ya da WITH ile başlayan sorgular çalıştırılır.")
+        return error_result("Only queries that start with SELECT or WITH can be run.")
 
     conn = connect(db_path)
-    deadline = time.monotonic() + config.QUERY_TIMEOUT_SECONDS
+    deadline = time.monotonic() + timeout_seconds
     conn.set_progress_handler(lambda: time.monotonic() > deadline, 10000)
     try:
         cursor = conn.execute(sql)
@@ -42,17 +46,20 @@ def execute(db_path, sql):
         row_count = 0
         for row in cursor:
             row_count += 1
+            if row_count > config.MAX_TOTAL_ROWS:
+                return error_result(f"Too many rows: the result has more than {config.MAX_TOTAL_ROWS} rows. "
+                                    "Add a join condition or a filter.")
             if len(rows) < config.MAX_RESULT_ROWS:
                 rows.append(row)
             all_rows.add(normalize(row))
     except sqlite3.Error as error:
         if time.monotonic() > deadline:
-            return error_result(f"Zaman aşımı: sorgu {config.QUERY_TIMEOUT_SECONDS} saniyede bitmedi.")
+            return error_result(f"Timeout: the query did not finish in {timeout_seconds} seconds.", timed_out=True)
         return error_result(str(error))
     finally:
         conn.close()
 
-    return {"ok": True, "error": None, "columns": columns, "rows": rows,
+    return {"ok": True, "error": None, "timed_out": False, "columns": columns, "rows": rows,
             "row_count": row_count, "result_key": result_key(all_rows)}
 
 
@@ -74,8 +81,11 @@ def result_key(rows):
 
 
 def explain(db_path, sql):
-    """Sorguyu çalıştırmadan planını verir; sözdizimi ya da eksik tablo/sütun varsa hata return eder."""
+    """Sorguyu çalıştırmadan planını verir; sözdizimi ya da eksik tablo/sütun varsa hata return eder.
+    SQLite normalde bulamadığı "çift tırnaklı" sütun adını metin sayar: "Free Meal Count" > 10 hatasız ama yanlış
+    çalışır. Burada bu davranış kapalıdır; hata ve SQLite'ın "tek tırnak mı olmalıydı?" sorusu agent'a döner."""
     conn = connect(db_path)
+    conn.setconfig(sqlite3.SQLITE_DBCONFIG_DQS_DML, False)
     try:
         plan = [row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql)]
     except sqlite3.Error as error:

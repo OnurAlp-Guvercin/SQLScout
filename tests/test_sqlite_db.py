@@ -6,20 +6,24 @@ import config
 from db import sqlite_db
 
 
+def execute(db, sql):
+    return sqlite_db.execute(db, sql, config.EXPLORE_TIMEOUT_SECONDS)
+
+
 def test_write_query_is_rejected(db):
-    result = sqlite_db.execute(db, "DELETE FROM items")
+    result = execute(db, "DELETE FROM items")
     assert not result["ok"]
-    assert sqlite_db.execute(db, "SELECT COUNT(*) FROM items")["rows"] == [(150,)]
+    assert execute(db, "SELECT COUNT(*) FROM items")["rows"] == [(150,)]
 
 
 def test_write_inside_with_is_stopped_by_read_only_mode(db):
-    result = sqlite_db.execute(db, "WITH x AS (SELECT 1) DELETE FROM items")
+    result = execute(db, "WITH x AS (SELECT 1) DELETE FROM items")
     assert not result["ok"]
     assert "readonly" in result["error"]
 
 
 def test_row_limit_and_row_count(db):
-    result = sqlite_db.execute(db, "SELECT * FROM items")
+    result = execute(db, "SELECT * FROM items")
     assert result["ok"]
     assert result["columns"] == ["id", "city", "price", "status"]
     assert len(result["rows"]) == config.MAX_RESULT_ROWS
@@ -27,40 +31,39 @@ def test_row_limit_and_row_count(db):
 
 
 def test_result_key_ignores_row_order(db):
-    up = sqlite_db.execute(db, "SELECT id, city FROM items ORDER BY id")
-    down = sqlite_db.execute(db, "SELECT id, city FROM items ORDER BY id DESC")
+    up = execute(db, "SELECT id, city FROM items ORDER BY id")
+    down = execute(db, "SELECT id, city FROM items ORDER BY id DESC")
     assert up["result_key"] == down["result_key"]
 
 
 def test_result_key_ignores_duplicate_rows(db):
-    every = sqlite_db.execute(db, "SELECT city FROM items")
-    distinct = sqlite_db.execute(db, "SELECT DISTINCT city FROM items")
+    every = execute(db, "SELECT city FROM items")
+    distinct = execute(db, "SELECT DISTINCT city FROM items")
     assert every["result_key"] == distinct["result_key"]
 
 
 def test_result_key_depends_on_column_order(db):
-    first = sqlite_db.execute(db, "SELECT id, city FROM items")
-    second = sqlite_db.execute(db, "SELECT city, id FROM items")
+    first = execute(db, "SELECT id, city FROM items")
+    second = execute(db, "SELECT city, id FROM items")
     assert first["result_key"] != second["result_key"]
 
 
 def test_result_key_treats_int_and_float_alike(db):
-    assert sqlite_db.execute(db, "SELECT 1")["result_key"] == sqlite_db.execute(db, "SELECT 1.0")["result_key"]
-    assert sqlite_db.execute(db, "SELECT 1")["result_key"] != sqlite_db.execute(db, "SELECT 2")["result_key"]
+    assert execute(db, "SELECT 1")["result_key"] == execute(db, "SELECT 1.0")["result_key"]
+    assert execute(db, "SELECT 1")["result_key"] != execute(db, "SELECT 2")["result_key"]
 
 
 def test_syntax_error_is_returned(db):
-    result = sqlite_db.execute(db, "SELECT * FORM items")
+    result = execute(db, "SELECT * FORM items")
     assert not result["ok"]
     assert result["error"]
 
 
-def test_timeout(db, monkeypatch):
-    monkeypatch.setattr(config, "QUERY_TIMEOUT_SECONDS", 0.2)
+def test_timeout(db):
     endless = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT COUNT(*) FROM n"
-    result = sqlite_db.execute(db, endless)
-    assert not result["ok"]
-    assert "Zaman aşımı" in result["error"]
+    result = sqlite_db.execute(db, endless, 0.2)
+    assert not result["ok"] and result["timed_out"]
+    assert result["error"] == "Timeout: the query did not finish in 0.2 seconds."
 
 
 def test_explain_finds_missing_column(db):
@@ -75,3 +78,18 @@ def test_fts5_trigram_is_available():
     conn.execute("CREATE VIRTUAL TABLE words USING fts5(value, tokenize = 'trigram')")
     conn.execute("INSERT INTO words VALUES ('Los Angeles')")
     assert conn.execute("SELECT value FROM words WHERE words MATCH 'Angel'").fetchall() == [("Los Angeles",)]
+
+
+def test_too_many_rows_is_an_error(db, monkeypatch):
+    monkeypatch.setattr(config, "MAX_TOTAL_ROWS", 100)
+    result = execute(db, "SELECT a.id, b.id FROM items a, items b")  # JOIN koşulu unutulmuş: 22500 satır
+    assert not result["ok"]
+    assert result["error"] == "Too many rows: the result has more than 100 rows. Add a join condition or a filter."
+
+
+def test_explain_rejects_a_double_quoted_missing_column(db):
+    """SQLite normalde bulamadığı "çift tırnaklı" adı metin sayar ve sorgu yanlış ama hatasız çalışır."""
+    assert execute(db, 'SELECT COUNT(*) FROM items WHERE "town" = \'x\'')["ok"]  # çalıştırmada eski davranış
+    result = sqlite_db.explain(db, 'SELECT COUNT(*) FROM items WHERE "town" = \'x\'')
+    assert result["error"] == 'no such column: "town" - should this be a string literal in single-quotes?'
+    assert sqlite_db.explain(db, 'SELECT "city" FROM items')["ok"]  # var olan sütun çift tırnakla yazılabilir

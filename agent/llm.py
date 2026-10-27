@@ -17,11 +17,11 @@ from tokenizers import Tokenizer
 import config
 
 
-def chat(messages, temperature=None, tools=None, seed=None, model=None):
+def chat(messages, temperature=None, tools=None, model=None):
     """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa policy modeli.
     Return: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
     model = model or config.POLICY_MODEL
-    body = request_body(messages, temperature, tools, seed, model)
+    body = request_body(messages, temperature, tools, model)
     url = config.TEACHER_URL if model == config.TEACHER_MODEL else config.LLM_URL
     headers = {"Content-Type": "application/json"}
     key = api_key()
@@ -46,7 +46,7 @@ def chat(messages, temperature=None, tools=None, seed=None, model=None):
     }
 
 
-def request_body(messages, temperature, tools, seed, model):
+def request_body(messages, temperature, tools, model):
     body = {
         "model": model,
         "messages": messages,
@@ -63,8 +63,6 @@ def request_body(messages, temperature, tools, seed, model):
         body["provider"] = {"order": providers, "allow_fallbacks": False}
     if tools:
         body["tools"] = tools
-    if seed is not None and config.SEND_SEED:
-        body["seed"] = seed
     return body
 
 

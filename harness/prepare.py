@@ -44,12 +44,14 @@ def full_table(table, profile, descriptions):
     lines = [f"Table {show_name(table['name'])} ({profile['row_count']} rows)"]
     for column in profile["columns"]:
         description = table_descriptions.get(column["name"].strip().lower(), "")
-        lines.append(column_line(column, column["name"] in primary_keys, description))
+        lines.append(column_line(column, column["name"] in primary_keys, description, profile["row_count"]))
     return lines
 
 
-def column_line(column, is_primary_key, description):
-    """Bir sütunun satırı, ör. "- gender TEXT; the gender of the superhero; all values: 'Female', 'Male', 'N/A'"."""
+def column_line(column, is_primary_key, description, row_count):
+    """Bir sütunun satırı, ör. "- gender TEXT; the gender of the superhero; all values: 'Female', 'Male', 'N/A'".
+    Neredeyse her satırı farklı metin sütunlarında (ID, isim) yalnızca PROFILE_UNIQUE_VALUES örnek gösterilir: on
+    tane isim yazılışı öğretmez, yalnızca bağlamı uzatır."""
     head = f"- {show_name(column['name'])} {column['type']}"
     if is_primary_key:
         head += ", primary key"
@@ -60,9 +62,18 @@ def column_line(column, is_primary_key, description):
     if column["min"] is not None:
         parts.append(f"range: {column['min']} to {column['max']}")
     elif column["top_values"]:
+        values = column["top_values"]
+        if not column["all_values_shown"] and is_near_unique(column, row_count):
+            values = values[:config.PROFILE_UNIQUE_VALUES]
         label = "all values: " if column["all_values_shown"] else "e.g. "
-        parts.append(label + ", ".join(show_value(value) for value, _ in column["top_values"]))
+        parts.append(label + ", ".join(show_value(value) for value, _ in values))
     return "; ".join(parts)
+
+
+def is_near_unique(column, row_count):
+    """Farklı değer sayısı dolu satırların en az PROFILE_UNIQUE_RATIO'su mu (ör. isimler, kodlar)?"""
+    filled = row_count * (1 - (column["null_ratio"] or 0))
+    return filled > 0 and column["distinct"] >= config.PROFILE_UNIQUE_RATIO * filled
 
 
 def show_value(value):
