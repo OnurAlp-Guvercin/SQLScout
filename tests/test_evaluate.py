@@ -83,8 +83,10 @@ def test_teacher_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_mod
     replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]  # teacher
     fake = llm.chat
 
-    def teacher_says_no(messages, **kwargs):
-        return text_reply("no") if messages[0]["content"] == prompts.CHECK_ANSWER else fake(messages, **kwargs)
+    def teacher_says_no(messages, **kwargs):  # yalnızca agent'ın cevabına "no"
+        if messages[0]["content"] == prompts.CHECK_ANSWER and "SELECT id FROM items" in messages[1]["content"]:
+            return text_reply("no")
+        return fake(messages, **kwargs)
 
     monkeypatch.setattr(llm, "chat", teacher_says_no)
     question = {"question_id": 7, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",

@@ -61,6 +61,13 @@ def read_tool_call(reply, tools):
     return step
 
 
+def extract_sql(text):
+    """Modelin cevabındaki ilk ``` bloğunun içi (kapanmamışsa metnin sonuna kadar); blok yoksa cevabın tamamı. Temizlik
+    agent'ınkiyle aynıdır (clean_sql). Base (baseline.py) ve teacher'ın ilk denemesi (agent/loop.py) kullanır."""
+    start = text.find("```")
+    return clean_sql(text[start:] if start >= 0 else text)
+
+
 def clean_sql(sql):
     """SQL'in etrafındaki ```sql ... ``` işaretlerini (kapanıştan sonraki açıklama metniyle birlikte) ve baştaki --
     ya da /* */ yorumlarını atar. Küçük modeller bunları sık ekler; atılmazsa okuma sorgusu "SELECT ile başlamıyor" diye
@@ -75,13 +82,15 @@ def is_empty(value):
 
 
 def earlier_calls(step, context):
-    """Bu çağrının daha önce yapılmış aynıları. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
+    """Bu çağrının, çağıranın (agent ya da teacher) kendi yaptığı aynıları: teacher agent'ın konuşmasını görmediği için
+    onun çağrıları teacher'a tekrar sayılmaz. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
     boşlukları önemsenmez. submit ve reddedilen çağrılar hiç tekrar sayılmaz (submit'i final check sınırlar)."""
     if step.get("error") or step["tool"] == "submit":
         return []
     same = []
+    by = "teacher" if context.teacher else "agent"
     for old in context.steps:
-        if old["tool"] != step["tool"] or not old["args"]:
+        if old["by"] != by or old["tool"] != step["tool"] or not old["args"]:
             continue
         if step["tool"] == "execute_sql":
             match = execute_sql.sql_key(old["args"]["sql"]) == execute_sql.sql_key(step["args"]["sql"])

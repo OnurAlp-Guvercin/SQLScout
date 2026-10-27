@@ -2,14 +2,15 @@
 
 import baseline
 from agent import llm, prompts
+from harness import guards
 
 
 def test_extract_sql_from_blocks_and_plain_text():
-    assert baseline.extract_sql("Here it is:\n```sql\nSELECT name\nFROM users;\n```\nDone.") == "SELECT name\nFROM users;"
-    assert baseline.extract_sql("```\nSELECT 1\n```") == "SELECT 1"
-    assert baseline.extract_sql("```sql\nSELECT 1") == "SELECT 1"  # kapanmamış blok (cevap kesildi)
-    assert baseline.extract_sql("```sqlite\nSELECT 1\n```") == "SELECT 1"
-    assert baseline.extract_sql("  SELECT 1  ") == "SELECT 1"
+    assert guards.extract_sql("Here it is:\n```sql\nSELECT name\nFROM users;\n```\nDone.") == "SELECT name\nFROM users;"
+    assert guards.extract_sql("```\nSELECT 1\n```") == "SELECT 1"
+    assert guards.extract_sql("```sql\nSELECT 1") == "SELECT 1"  # kapanmamış blok (cevap kesildi)
+    assert guards.extract_sql("```sqlite\nSELECT 1\n```") == "SELECT 1"
+    assert guards.extract_sql("  SELECT 1  ") == "SELECT 1"
 
 
 def test_answer_writes_one_sql_and_scores_it(db, monkeypatch):

@@ -42,11 +42,6 @@ answers the question correctly: the right tables, joins, conditions and values, 
 
 Reply with exactly one word: yes or no."""
 
-# Handoff (adım 8): teacher, agent'ın konuşmasını bu notla devralır.
-TEACHER_TAKEOVER = """A smaller agent worked on this question and handed it over to you. Reason: {reason}.
-Everything it tried is above. Continue from here: you have a new budget of {budget} tool calls. \
-When you know the SQL query that answers the question, call `submit` with it."""
-
 # Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
 SEARCH_VALUES = {"type": "function", "function": {
     "name": "search_values",

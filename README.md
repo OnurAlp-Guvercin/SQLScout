@@ -23,7 +23,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
 | 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty or only 0/NULL, a note suggests checking the value's spelling with `search_values` |
 | 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
-| 8 | Handoff | Teacher | No progress in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher continues from where the agent stopped, with 5 tool calls |
+| 8 | Handoff | Teacher | No progress or 2 wasted calls in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher solves the question from scratch: it first writes a single SQL, then fixes it in its own agent loop with 10 tool calls; its answer is checked too |
 
 Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL) → 5 → 6 (1 row) → 2 → 7 (passed) → ✔
 

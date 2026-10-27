@@ -42,7 +42,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Fallback answer | Hiçbir cevap kabul edilmediğinde dönen cevap: agent'ın ya da teacher'ın submit ettiği ve hatasız çalışan son SQL; `fallback` etiketi taşır, güveni düşüktür |
 | Label | Dönen cevabın etiketi: `ok` (kabul edildi), `fallback` (kabul edilmedi ama submit edilmiş ve hatasız çalışan bir SQL var; düşük güven), `no_answer` (böyle bir SQL yok; SQL yerine hata mesajı döner) |
 | Base | Karşılaştırma için tool'suz tek SQL: model adım 1'in bağlamını görür ve tek seferde bir SQL yazar (`baseline.py`) |
-| Experience log | Her sorunun bütün konuşmasının (agent'ın ve teacher'ın her adımı), cevabın ve cevap doğru mu bilgisinin kaydı; agent'ın eğitim verisi buradan çıkar |
+| Experience log | Her sorunun bütün konuşmalarının (agent'ın ve handoff olduysa teacher'ın her adımı), cevabın ve cevap doğru mu bilgisinin kaydı; agent'ın eğitim verisi buradan çıkar |
 | Split | Verinin bölümü: train (eğitim) ya da dev (değerlendirme). Eğitime yalnızca train girer |
 | SFT | Modeli doğru örnekleri taklit ettirerek eğitmek |
 | On-policy distillation | Öğrenci modelin kendi denemelerini teacher'ın düzeltmesiyle eğitmek |
@@ -57,7 +57,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 - **Policy agent:** Her adımda hangi tool'u çağıracağına karar verir. Şu an yerel `Qwen3.5-0.8B`; hedef `Qwen3.5-4B`. Şimdilik eğitilmemiş hâliyle kullanılır; ileride experience log'la harness'ın içinde eğitilir.
 - **Harness (düz Python, LLM yok):** Tool'ları çalıştırır, kontrolleri ve final check'i yapar, handoff'a karar verir. Guardrail'leri de o uygular.
 - **Veritabanı (SQLite, salt okunur):** `execute_sql`. Doğru SQL agent'ın bağlamına hiç girmez, yalnızca puanlamada kullanılır.
-- **Teacher LLM:** Agent'ın cevabını kontrol eder (adım 7); handoff'tan sonra agent'ın kaldığı yerden devam eder (adım 8). Şu an OpenRouter API'sindeki `Qwen3.5-9B`; hedef yerel `Qwen3.6-27B` (4-bit).
+- **Teacher LLM:** Agent'ın cevabını kontrol eder (adım 7); handoff'tan sonra soruyu sıfırdan, kendi agent döngüsüyle çözer (adım 8). Şu an OpenRouter API'sindeki `Qwen3.5-9B`; hedef yerel `Qwen3.6-27B` (4-bit).
 
 ## Akış adım adım
 
@@ -87,10 +87,10 @@ Agent her turda tek bir tool call yapar. Ne yapacağına ve hangi sırayla yapac
 - Bir değerin veritabanında nasıl yazıldığını bilmiyorsa → `search_values` → 3
 - Çalıştırdığı bir SQL soruyu cevaplıyorsa → o SQL'le `submit` → 7. Arada attığı sorgular (kontrol, düzeltme) cevabı etkilemez
 
-Her observation'dan sonra agent buraya döner. Agent her adımda en olası cevabı seçer (temperature 0). Son çağrısı reddedildiyse ya da bir tekrarsa, aynı girdiye yine aynı cevabı vereceği için sıradaki adım örneklenir (temperature 0.7). Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. SQL argument'ının etrafındaki ```sql işaretleri ve baştaki `--` yorum satırları atılır; küçük modeller bunları sık ekler. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa onu şimdi submit et" hatırlatması da eklenir. Agent ilk 4 tool call'ında dolu sonuç veren hiçbir SQL çalıştıramadıysa ilerlemiyor sayılır ve harness işi hemen teacher'a verir → 8; teacher kısa bir geçmişle başlar, boşa adım ve maliyet harcanmaz. Budget biterse de harness handoff'u zorlar → 8.
+Her observation'dan sonra agent buraya döner. Agent her adımda en olası cevabı seçer (temperature 0). Son çağrısı reddedildiyse ya da bir tekrarsa, aynı girdiye yine aynı cevabı vereceği için sıradaki adım örneklenir (temperature 0.7). Her tool call budget'tan bir düşer (en fazla 10). Reddedilen istekler ve tool call olarak okunamayan çıktılar da sayılır; hata agent'a döner. SQL argument'ının etrafındaki ```sql işaretleri ve baştaki `--` yorum satırları atılır; küçük modeller bunları sık ekler. Her sonucun altında kalan tool call sayısı yazar; son 2 hakta "çalıştırdığın bir sorgu soruyu cevaplıyorsa onu şimdi submit et" hatırlatması da eklenir. Agent ilk 4 tool call'ında dolu sonuç veren hiçbir SQL çalıştıramadıysa ya da bunlardan 2'si boşa gittiyse (okunamadı, tekrarlandı ya da pre-check'te reddedildi) ilerlemiyor sayılır ve harness işi hemen teacher'a verir → 8; boşa adım ve maliyet harcanmaz. Budget biterse de harness handoff'u zorlar → 8.
 
 **Guardrail'ler.** Küçük modeller bazı tipik hataları sık yapar; bunlar sistemi bozmasın diye harness her adımda üç basit kural uygular (DualSQL).
-1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar; SQL'de boşluklar ve sondaki `;` önemsenmez) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 8. Yalnızca kendi tekrarları sayılır: teacher'ın agent'ın denediği bir çağrıyı yinelemesi onu takılmış saymaz. `submit` tekrar sayılmaz; onu final check sınırlar (adım 7).
+1. **Tekrar yok:** Aynı çağrı (aynı tool, aynı argümanlar; SQL'de boşluklar ve sondaki `;` önemsenmez) ikinci kez gelirse çalıştırılmaz; "bunu zaten denedin" notu ve önceki sonuç döner, budget yine düşer. Aynı çağrı 3. kez tekrarlanırsa agent takılmış sayılır ve harness handoff yapar → 8. Yalnızca kendi çağrıları sayılır: teacher agent'ın konuşmasını görmediği için agent'ın denediği bir çağrı teacher'a tekrar sayılmaz, çalıştırılır. `submit` tekrar sayılmaz; onu final check sınırlar (adım 7).
 2. **Uzun sonuç kırpılır:** Agent en fazla 20 satır görür, yanında toplam satır sayısı yazar.
 3. **Bağlam sıkıştırılır:** Konuşma 32K token'ı aşarsa en eski sonuçlar tek satırlık özete iner (ör. "Columns: name | 358 rows").
 
@@ -130,15 +130,16 @@ Sorgu veritabanında salt okunur çalıştırılır: keşif ve deneme sorguları
 Agent cevap olarak seçtiği SQL'i `submit(sql="SELECT ...")` ile gönderir; arada attığı sorgular cevabı etkilemez. Cevap dönmeden önce son kontrol:
 - **Salt okuma mı, tablolar ve sütunlar var mı, hatasız çalışıyor mu?** (adım 5–6; agent bu SQL'i daha önce çalıştırdıysa sonuç cache'ten gelir). Hata veren cevap geçmez. Boş sonuç geçer.
 - **Agent bu SQL'in sonucunu görmüş müydü?** Agent sonucuna bakmadığı bir cevabı gönderemez. Görmediyse harness sorguyu çalıştırır, sonucunu agent'a gösterir ve "soruyu cevaplıyorsa yeniden submit et" der → 2. Bu bir hata sayılmaz. Örnek: agent hiç denemeden `WHERE County = 'Alemeda'` yazdıysa boş sonucu burada görür ve değeri düzeltir. Agent'a en fazla 20 satır gösterildiği için büyük sonuçlar sorun olmaz.
-- **Teacher cevabı onaylıyor mu?** Çalışan bir SQL yanlış da olabilir. Agent'ın cevabını teacher kontrol eder: adım 1'in bağlamını, SQL'i ve sonucunu (agent'a yönelik `search_values` notu olmadan) görüp "bu soruyu doğru cevaplıyor mu? evet/hayır" sorusuna tek kelimeyle cevap verir. "Hayır" derse iş teacher'a geçer → 8. Teacher'ın kendi `submit`'i kontrol edilmez. Teacher'ın API'sine birkaç denemeye rağmen ulaşılamazsa agent'ın cevabı kaybolmasın diye kabul edilir; kontrolün yapılamadığı sonuç kaydına yazılır (`teacher_error`).
+- **Teacher cevabı onaylıyor mu?** Çalışan bir SQL yanlış da olabilir. Agent'ın cevabını teacher kontrol eder: adım 1'in bağlamını, SQL'i ve sonucunu (agent'a yönelik `search_values` notu olmadan) görüp "bu soruyu doğru cevaplıyor mu? evet/hayır" sorusuna tek kelimeyle cevap verir. "Hayır" derse iş teacher'a geçer → 8. Handoff'tan sonra teacher'ın kendi `submit`'i de aynı kontrolden geçer; "hayır" çıkarsa iş kimseye geçmez: teacher'a "cevap yanlış bulundu, soruya ve evidence'a göre düzelt" notu döner ve bu final check hakkından düşer. Teacher'ın API'sine birkaç denemeye rağmen ulaşılamazsa agent'ın cevabı kaybolmasın diye kabul edilir; kontrolün yapılamadığı sonuç kaydına yazılır (`teacher_error`).
 
 Geçti → **cevap döner ✔** (label `ok`). Final check'ten geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
 
 ### 8. Handoff
 
-Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi, teacher agent'ın cevabını onaylamadı ya da budget bitti.
-- Teacher sıfırdan başlamaz, agent'ın kaldığı yerden devam eder: bütün konuşmayı ve handoff'un nedenini görür. Final check 2 kez geçmediyse son hatanın notunu da görür; teacher agent'ın cevabını reddettiyse "son submit edilen sorgu yanlış bulundu" yazar.
-- Agent'ınkinin yarısı kadar yeni bir budget'la (5 tool call) ve aynı tool'larla çalışır (adım 2–7). İlk adımını, agent takılmış olsa da, temperature 0 ile atar. Final check'te agent'ın hatalarından bağımsız kendi 2 hakkı vardır.
+Handoff'u harness yapar: ilk 4 adımda ilerleme yok ya da 2 çağrı boşa gitti, aynı çağrı 3 kez tekrarlandı, final check 2 kez geçmedi, teacher agent'ın cevabını onaylamadı ya da budget bitti.
+- Teacher soruyu sıfırdan çözer: agent'ın konuşmasını görmez, yalnızca sistem prompt'u ve adım 1'in bağlamıyla başlar. Küçük modelin tekrarları ve yanlış denemeleri teacher'ı da yanlış yola sokar. Agent'ın konuşması experience log için saklanır.
+- **İlk deneme:** Teacher önce base gibi tool'suz tek bir SQL yazar (temperature 0); harness onu `execute_sql` olarak çalıştırır ve sonucunu teacher'ın konuşmasına ilk adım olarak ekler (bir tool call sayılır). Teacher bu cevaptan başlar: doğruysa hemen submit eder, hata, boş sonuç ya da ret görürse döngüde düzeltir. Böylece döngü, teacher'ın tek seferde bildiği soruyu kaybettirmez; yalnızca üstüne ekler.
+- Agent'ınkiyle aynı budget'la (10 tool call) ve aynı tool'larla, aynı agent döngüsünü çalıştırır (adım 2–7). İlk adımını temperature 0 ile atar. Final check'te kendi 2 hakkı vardır; submit edeceği SQL'in sonucunu kendisi görmüş olmalıdır.
 - Teacher'ın `submit`'i de agent'ınki gibi final check'ten geçer (adım 7). Final check yine 2 kez geçmezse, teacher budget'ı içinde `submit` etmezse ya da teacher'ın API'sine ulaşılamazsa (`teacher_error`) fallback answer döner.
 
 **Fallback answer:** agent'ın ya da teacher'ın submit ettiği ve hatasız çalışan son SQL (`fallback`, düşük güven). Örnek: teacher agent'ın cevabına "hayır" dedi ama kendisi de çözemedi; agent'ın reddedilen SQL'i döner. Kimse böyle bir SQL submit etmediyse cevap yok (`no_answer`): SQL yerine nedenini söyleyen bir hata mesajı döner. Keşif sorguları ve çalışmayan SQL'ler hiçbir zaman cevap olmaz.
@@ -156,7 +157,7 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 
 ### Soru bittikten sonra
 
-**Experience log:** Her soru bitince, nereden çalıştırılırsa çalıştırılsın (`run.py`, `evaluate.py` ya da kullanımdaki bir uygulama), bir satır yazılır: agent'ın (handoff olduysa teacher'ın da) gördüğü konuşmanın tamamı, cevap ve label. Değerlendirmede cevabın doğru olup olmadığı da yazılır (`split = dev`); kullanımda doğru SQL olmadığı için bu alan boş kalır (`split = use`), orada eğitim sinyali teacher'ın çözümleri ve label'dır. Kayıtlar birikir, hiç silinmez.
+**Experience log:** Her soru bitince, nereden çalıştırılırsa çalıştırılsın (`run.py`, `evaluate.py` ya da kullanımdaki bir uygulama), bir satır yazılır: agent'ın gördüğü konuşmanın tamamı, handoff olduysa teacher'ınki de (ayrı), cevap ve label. Değerlendirmede cevabın doğru olup olmadığı da yazılır (`split = dev`); kullanımda doğru SQL olmadığı için bu alan boş kalır (`split = use`), orada eğitim sinyali teacher'ın çözümleri ve label'dır. Kayıtlar birikir, hiç silinmez.
 
 **Agent eğitimi (ileride):** Agent, kullanılacağı harness'ın içinde, experience log'daki kayıtlarla eğitilir: önce teacher'ın doğru çıkan çözümleriyle SFT, sonra on-policy distillation (agent'ın kendi denemeleri, teacher'ın düzeltmesiyle), sonra RL (reward: cevabın doğruluğu). Eğitime yalnızca train split'inin kayıtları girer.
 
@@ -171,8 +172,9 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok, aynı çağrı 3 kez tekrar
 | Adım 1 olabildiğince çok bilgi verir (sütun açıklamaları, column profile'ları) | Her search bir tool call harcar. Bilgi baştan gelirse budget denemeye kalır | DualSQL, HarnessSQL |
 | Agent'ın cevabını teacher onaylar | Çalışan bir SQL yanlış da olabilir; küçük model kendi yanlışını fark etmez. Teacher'ın tek kelimelik kontrolü, doğru cevapları ucuza kabul eder, yanlışları teacher'a gönderir | — |
 | Fallback yalnızca submit edilmiş bir SQL'dir | Agent veriyi keşfedebildiği için en son çalışan sorgu bir keşif sorgusu olabilir; submit edilen SQL ise birinin "cevabım bu" dediği sorgudur. Kabul edilmediği için `fallback` etiketiyle düşük güvenli döner | — |
-| İlerlemeyen agent erken handoff yapar | İlk adımlarında dolu sonuç alamayan agent genelde soruyu çözemiyor; teacher kısa bir geçmişle başlar, maliyet düşer | — |
-| Teacher agent'ın kaldığı yerden devam eder | Agent'ın bulduğu bilgi boşa gitmez; handoff kayıtları doğrudan eğitim verisi olur | OLIVE, OVCSD |
+| İlerlemeyen agent erken handoff yapar | İlk adımlarında dolu sonuç alamayan ya da çağrıları boşa giden agent genelde soruyu çözemiyor; erken handoff aynı doğrulukla daha az tool call harcar | — |
+| Teacher önce tek SQL yazar, cevabı da kontrol edilir | Döngüdeki teacher keşif yaptıkça soruyu yeniden yorumlayıp tek seferde bildiği soruları kaybediyordu; tek SQL'le başlamak bunu önler. Kontrolün reddi teacher'ın kaçırdığı hatayı (ör. eksik `HAVING`) döngüde düzeltmesini sağlar | — |
+| Teacher sıfırdan, tam budget'la başlar | Agent'ın konuşmasını devralan teacher, küçük modelin tekrarlarını ve yanlış yollarını sürdürüyordu; temiz bağlamla kendi döngüsünü çalıştırınca daha çok soruyu çözüyor | — |
 | Agent harness içinde eğitilir | Harness dışında eğitilen model, harness'ta kullanıldığında 30.4'ten 9.6'ya düşüyor | HarnessSQL |
 
 ## Uygulama sırası
@@ -206,7 +208,7 @@ Yalnızca bu tasarımı doğrudan şekillendiren çalışmalar. Tam tarama [ARAS
 - DualSQL ([2609.18135](https://arxiv.org/abs/2609.18135)): guardrail'ler (aynı çağrının tekrarı, format hatası).
 
 **Handoff**
-- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) ve OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): teacher'ın agent'ın kaldığı yerden devam etmesi (adım 8); on-policy distillation.
+- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) ve OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): on-policy distillation (agent eğitimi, ileride).
 
 **Değerlendirme**
 - BIRD ([2305.03111](https://arxiv.org/abs/2305.03111)): ana benchmark, evidence ve resmi sonuç karşılaştırma kuralı.

@@ -44,7 +44,7 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 | Fallback answer | The answer returned when no answer is accepted: the last SQL the agent or the teacher submitted that runs without error; it carries the `fallback` label and has low confidence |
 | Label | The label of the returned answer: `ok` (accepted), `fallback` (not accepted, but a submitted SQL that runs exists; low confidence), `no_answer` (no such SQL; an error message is returned instead of SQL) |
 | Base | The tool-free single SQL used for comparison: the model sees the step 1 context and writes one SQL query in one go (`baseline.py`) |
-| Experience log | The record of each question's whole conversation (every step of the agent and the teacher), the answer and whether it is correct; the agent's training data comes from here |
+| Experience log | The record of each question's whole conversations (every step of the agent and, after a handoff, of the teacher), the answer and whether it is correct; the agent's training data comes from here |
 | Split | A part of the data: train or dev (evaluation). Only train is used for training |
 | SFT | Training a model to imitate correct examples |
 | On-policy distillation | Training the student model on its own attempts, corrected by the teacher |
@@ -59,7 +59,7 @@ Arrow colors: **black** tool call, **blue** observation returned to the agent, *
 - **Policy agent:** Decides which tool to call at each step. Currently the local `Qwen3.5-0.8B`; the target is `Qwen3.5-4B`. Used untrained for now; later it is trained inside the harness with the experience log.
 - **Harness (plain Python, no LLM):** Runs the tools, makes the checks and the final check, decides on the handoff. It also applies the guardrails.
 - **Database (SQLite, read-only):** `execute_sql`. The correct SQL never enters the agent's context; it is used only for scoring.
-- **Teacher LLM:** Checks the agent's answer (step 7); after a handoff, continues where the agent left off (step 8). Currently `Qwen3.5-9B` on the OpenRouter API; the target is a local `Qwen3.6-27B` (4-bit).
+- **Teacher LLM:** Checks the agent's answer (step 7); after a handoff, solves the question from scratch with its own agent loop (step 8). Currently `Qwen3.5-9B` on the OpenRouter API; the target is a local `Qwen3.6-27B` (4-bit).
 
 ## The flow step by step
 
@@ -89,10 +89,10 @@ The agent makes a single tool call each turn. It decides itself what to do and i
 - If it does not know how a value is written in the database → `search_values` → 3
 - If a query it ran answers the question → `submit` with that query → 7. The queries it ran in between (checks, fixes) do not affect the answer
 
-After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. ```sql fences around the SQL argument and leading `--` comment lines are removed; small models often add them. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if a query you ran answers the question, submit it now". If the agent has not run any SQL that returned rows in its first 4 tool calls, it is considered not to be making progress and the harness hands over to the teacher right away → 8; the teacher starts with a short history, and no steps or money are wasted. If the budget runs out, the harness also forces a handoff → 8.
+After every observation the agent returns here. At each step the agent takes its most likely reply (temperature 0). If its last call was rejected or was a repeat, it would give the same reply to the same input again, so the next step is sampled (temperature 0.7). Every tool call takes one off the budget (at most 10). Rejected requests and outputs that cannot be read as a tool call also count; the error is returned to the agent. ```sql fences around the SQL argument and leading `--` comment lines are removed; small models often add them. The number of tool calls left is written under every result; in the last 2, a reminder is added too: "if a query you ran answers the question, submit it now". If the agent has not run any SQL that returned rows in its first 4 tool calls, or 2 of them were wasted (unreadable, repeated or rejected by the pre-check), it is considered not to be making progress and the harness hands over to the teacher right away → 8; no steps or money are wasted. If the budget runs out, the harness also forces a handoff → 8.
 
 **Guardrails.** Small models often make certain typical mistakes; so that these do not break the system, the harness applies three simple rules at every step (DualSQL).
-1. **No repeats:** If the same call (same tool, same arguments; whitespace and a trailing `;` in SQL do not matter) comes a second time, it is not run; a "you already tried this" note and the earlier result are returned, and the budget still goes down. If the same call is repeated a third time, the agent is considered stuck and the harness hands over → 8. Only its own repeats count: the teacher repeating a call the agent made does not make the teacher stuck. `submit` does not count as a repeat; the final check limits it (step 7).
+1. **No repeats:** If the same call (same tool, same arguments; whitespace and a trailing `;` in SQL do not matter) comes a second time, it is not run; a "you already tried this" note and the earlier result are returned, and the budget still goes down. If the same call is repeated a third time, the agent is considered stuck and the harness hands over → 8. Only its own calls count: the teacher does not see the agent's conversation, so a call the agent made is not a repeat for the teacher; it is run. `submit` does not count as a repeat; the final check limits it (step 7).
 2. **Long results are trimmed:** The agent sees at most 20 rows, with the total number of rows next to them.
 3. **The context is compressed:** If the conversation exceeds 32K tokens, the oldest results shrink to a one-line summary (e.g. "Columns: name | 358 rows").
 
@@ -132,15 +132,16 @@ The query runs read-only on the database: exploration and trial queries for at m
 The agent sends the SQL it chooses as the answer with `submit(sql="SELECT ...")`; the queries it ran in between do not affect the answer. The last check before the answer is returned:
 - **Is it read-only, do the tables and columns exist, does it run without error?** (steps 5–6; if the agent ran this SQL before, the result comes from the cache). An answer that gives an error does not pass. An empty result passes.
 - **Had the agent seen this SQL's result?** The agent cannot submit an answer whose result it has not looked at. If it had not seen it, the harness runs the query, shows the result to the agent and says "if it answers the question, submit it again" → 2. This does not count as a failure. Example: if the agent wrote `WHERE County = 'Alemeda'` without trying it, it sees the empty result here and fixes the value. Since the agent is shown at most 20 rows, large results are not a problem.
-- **Does the teacher approve the answer?** A SQL query that runs can still be wrong. The teacher checks the agent's answer: it sees the step 1 context, the SQL and its result (without the `search_values` note meant for the agent), and answers "does it answer the question correctly? yes/no" with one word. If it says "no", the task goes to the teacher → 8. The teacher's own `submit` is not checked. If the teacher's API cannot be reached after several tries, the agent's answer is accepted so that it is not lost; the result record says the check could not be done (`teacher_error`).
+- **Does the teacher approve the answer?** A SQL query that runs can still be wrong. The teacher checks the agent's answer: it sees the step 1 context, the SQL and its result (without the `search_values` note meant for the agent), and answers "does it answer the question correctly? yes/no" with one word. If it says "no", the task goes to the teacher → 8. After a handoff, the teacher's own `submit` goes through the same check; a "no" hands the task to no one: the teacher gets the note "the answer was judged wrong; fix it against the question and the evidence", and it counts as a final check try. If the teacher's API cannot be reached after several tries, the agent's answer is accepted so that it is not lost; the result record says the check could not be done (`teacher_error`).
 
 Passed → **the answer is returned ✔** (label `ok`). Failed the final check → the reason is returned to the agent as a note → 2. If it fails a second time → 8.
 
 ### 8. Handoff
 
-The harness does the handoff: no progress in the first 4 steps, the same call repeated 3 times, the final check failing twice, the teacher not approving the agent's answer, or the budget running out.
-- The teacher does not start from scratch; it continues where the agent left off: it sees the whole conversation and the reason for the handoff. If the final check failed twice, it also sees the note of the last error; if the teacher rejected the agent's answer, the reason says "a reviewer judged the submitted query to be wrong".
-- It works with a new budget half the size of the agent's (5 tool calls) and the same tools (steps 2–7). It takes its first step with temperature 0, even if the agent was stuck. In the final check it has its own 2 tries, regardless of the agent's failures.
+The harness does the handoff: no progress in the first 4 steps or 2 wasted calls, the same call repeated 3 times, the final check failing twice, the teacher not approving the agent's answer, or the budget running out.
+- The teacher solves the question from scratch: it does not see the agent's conversation and starts with only the system prompt and the step 1 context. The small model's repeats and wrong attempts lead the teacher astray too. The agent's conversation is kept for the experience log.
+- **First try:** The teacher first writes a single tool-free SQL like the base (temperature 0); the harness runs it as `execute_sql` and adds its result to the teacher's conversation as the first step (it counts as one tool call). The teacher starts from this answer: if it is right, it submits it at once; if it sees an error, an empty result or a rejection, it fixes it in the loop. This way the loop does not lose a question the teacher knows in one shot; it only adds to it.
+- It runs the same agent loop with the same budget as the agent (10 tool calls) and the same tools (steps 2–7). It takes its first step with temperature 0. In the final check it has its own 2 tries; it must have seen the result of the SQL it submits itself.
 - The teacher's `submit` goes through the final check like the agent's (step 7). If the final check fails twice again, the teacher does not submit within its budget, or the teacher's API cannot be reached (`teacher_error`), the fallback answer is returned.
 
 **Fallback answer:** the last SQL the agent or the teacher submitted that runs without error (`fallback`, low confidence). Example: the teacher said "no" to the agent's answer but could not solve the question either; the agent's rejected SQL is returned. If nobody submitted such a SQL, there is no answer (`no_answer`): an error message that gives the reason is returned instead of SQL. Exploration queries and SQL that does not run are never an answer.
@@ -158,7 +159,7 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 
 ### After the question
 
-**Experience log:** When a question ends, wherever it was run from (`run.py`, `evaluate.py` or an application in use), one line is written: the whole conversation the agent (and, after a handoff, the teacher) saw, the answer and the label. In evaluation, whether the answer is correct is also written (`split = dev`); in use there is no correct SQL, so this field stays empty (`split = use`), and the training signal there is the teacher's solutions and the label. Records accumulate and are never deleted.
+**Experience log:** When a question ends, wherever it was run from (`run.py`, `evaluate.py` or an application in use), one line is written: the whole conversation the agent saw, after a handoff the teacher's too (separately), the answer and the label. In evaluation, whether the answer is correct is also written (`split = dev`); in use there is no correct SQL, so this field stays empty (`split = use`), and the training signal there is the teacher's solutions and the label. Records accumulate and are never deleted.
 
 **Agent training (later):** The agent is trained inside the harness it will be used in, with the records in the experience log: first SFT on the teacher's correct solutions, then on-policy distillation (the agent's own attempts, corrected by the teacher), then RL (reward: whether the answer is correct). Only records from the train split are used for training.
 
@@ -173,8 +174,9 @@ The harness does the handoff: no progress in the first 4 steps, the same call re
 | Step 1 gives as much information as possible (column descriptions, column profiles) | Every search costs a tool call. If the information comes up front, the budget is left for trying | DualSQL, HarnessSQL |
 | The teacher approves the agent's answer | A SQL query that runs can still be wrong, and a small model does not notice its own mistake. The teacher's one-word check accepts right answers cheaply and sends wrong ones to the teacher | — |
 | The fallback is only a submitted SQL | Since the agent can explore the data, the last query that ran may be an exploration query; a submitted SQL is the one somebody called "my answer". As it was not accepted, it is returned with low confidence under the `fallback` label | — |
-| An agent that makes no progress hands over early | An agent that gets no rows in its first steps usually cannot solve the question; the teacher starts with a short history and the cost goes down | — |
-| The teacher continues where the agent left off | What the agent found is not wasted; handoff records become training data directly | OLIVE, OVCSD |
+| An agent that makes no progress hands over early | An agent that gets no rows in its first steps, or wastes its calls, usually cannot solve the question; an early handoff spends fewer tool calls for the same accuracy | — |
+| The teacher first writes a single SQL, and its answer is checked too | In the loop, the teacher kept reinterpreting the question as it explored and lost questions it knew in one shot; starting from a single SQL prevents this. A rejection by the check lets the teacher fix a mistake it missed (e.g. a missing `HAVING`) in the loop | — |
+| The teacher starts from scratch with a full budget | A teacher that took over the agent's conversation kept following the small model's repeats and wrong paths; with a clean context it runs its own loop and solves more questions | — |
 | The agent is trained inside the harness | A model trained outside the harness drops from 30.4 to 9.6 when used in the harness | HarnessSQL |
 
 ## Build order
@@ -208,7 +210,7 @@ Only the works that directly shaped this design. The full survey is in [RESEARCH
 - DualSQL ([2609.18135](https://arxiv.org/abs/2609.18135)): guardrails (repeated calls, format errors).
 
 **Handoff**
-- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) and OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): the teacher continuing where the agent left off (step 8); on-policy distillation.
+- OLIVE ([2609.36246](https://arxiv.org/abs/2609.36246)) and OVCSD ([2607.27937](https://arxiv.org/abs/2607.27937)): on-policy distillation (training the agent, later).
 
 **Evaluation**
 - BIRD ([2305.03111](https://arxiv.org/abs/2305.03111)): the main benchmark, evidence and the official result comparison rule.

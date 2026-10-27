@@ -39,7 +39,7 @@ def lane_headers():
       '<i>execute_sql</i> tool\'u olarak sunulur',
       '<b>Kural:</b> gönderilen her cevap gerçekten çalıştırılmış olur'),
      ('teacher','TEACHER LLM','Qwen3.5-9B (API) · hedef Qwen3.6-27B',
-      'Agent\'ın cevabını kontrol eder. Handoff\'ta agent\'ın <b>kaldığı yerden</b>, yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',
+      'Agent\'ın cevabını kontrol eder. Handoff\'ta soruyu <b>sıfırdan</b>, kendi agent döngüsüyle, 10 tool call ve aynı tool\'larla çözer',
       '<b>Rolü:</b> agent\'ın cevabını onaylar ya da reddeder; çözemediği vakayı çözer, çözümü eğitim verisi olur'),
     ]
     for x,(k,t,s,a,b) in zip([LX[0],LX[2],LX[3],LX[4]],heads):
@@ -98,11 +98,11 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <li>Sırayı kendisi seçer: değer ara, veriyi keşfet ya da bir sorgu dene</li>
 <li>Gerçek sonuca bak, gerekirse düzelt</li>
 <li>Soruyu cevaplayan SQL\'i <i>submit</i> et</li></ul>
-<p>Budget: en fazla 10 tool call; ilk 4'ünde dolu sonuç yoksa handoff</p></div>''')
+<p>Budget: en fazla 10 tool call; ilk 4'ünde dolu sonuç yoksa ya da 2'si boşa gittiyse handoff</p></div>''')
 
 # handoff from agent (top)
 arrow([(390,524),(1736,524),(1736,1036)],'t',w=3)
-label(640,524,'<b>Handoff:</b> 4 adımda ilerleme yok · 3 tekrar · budget bitti','t')
+label(640,524,'<b>Handoff:</b> ilerleme yok · boşa çağrı · 3 tekrar · budget bitti','t')
 
 node(822,546,324,118,'harness','search_values','Adım 1\'in göstermediği bir değerin yazılışı ve sütunu · değer yoksa benzer sütun adları',tsize=19)
 arrow([(390,584),(818,584)],'k'); label(606,584,'search_values','k')
@@ -125,7 +125,7 @@ node(822,1036,324,128,'decision','Final check','Hatasız çalışıyor mu · age
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'geçmedi → not · çalışmaya devam','p')
 
-node(1574,1040,324,110,'teacher','Teacher','Agent\'ın bağlamını alır, kaldığı yerden yarım budget\'la (5 tool call) ve aynı tool\'larla devam eder',tsize=19)
+node(1574,1040,324,110,'teacher','Teacher','Agent\'ın konuşmasını görmez: önce tek SQL yazar, sonra kendi döngüsünde 10 tool call ile düzeltir',tsize=19)
 arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'2 kez geçmedi ya da teacher hayır dedi','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'teacher\'ın submit\'i de buradan geçer','t')
 
@@ -150,7 +150,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, düzeltir. Cevap olarak seçtiği SQL\'i submit eder; cevap final check\'ten geçer, teacher onaylar ve gönderilen her şey gerçekten çalıştırılmış olur. İlerleyemez ya da takılırsa agent işi teacher\'a devreder (handoff); teacher kaldığı yerden devam eder. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Ana fikir:</b> agent hangi tool\'u kullanacağına kendisi karar verir: değer arar, SQL dener, gerçek sonuca bakar, düzeltir. Cevap olarak seçtiği SQL\'i submit eder; cevap final check\'ten geçer, teacher onaylar ve gönderilen her şey gerçekten çalıştırılmış olur. İlerleyemez ya da takılırsa agent işi teacher\'a devreder (handoff); teacher soruyu sıfırdan, kendi agent döngüsüyle çözer. Her sorunun bütün konuşması experience log\'a yazılır; agent ileride bununla eğitilir.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>

@@ -59,23 +59,24 @@ def test_only_first_of_many_calls_is_taken():
     assert guards.read_tool_call(reply, TOOLS)["args"] == {"query": "Boston"}
 
 
-def past(*steps):
-    return SimpleNamespace(steps=list(steps))
+def past(*steps, teacher=False):
+    return SimpleNamespace(steps=list(steps), teacher=teacher)
 
 
 def test_repeat_rules():
-    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1"}, "result": "Columns: 1"}
+    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1"}, "result": "Columns: 1", "by": "agent"}
     same_sql = {"tool": "execute_sql", "args": {"sql": " SELECT   1 "}}
     earlier = guards.earlier_calls(same_sql, past(old))
     assert earlier == [old]
     assert guards.repeat_note(earlier).endswith("Its result was:\nColumns: 1")
     other_sql = {"tool": "execute_sql", "args": {"sql": "SELECT 2"}}
     assert guards.earlier_calls(other_sql, past(old)) == []
-    search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "..."}
+    assert guards.earlier_calls(same_sql, past(old, teacher=True)) == []  # teacher'a agent'ın çağrısı tekrar sayılmaz
+    search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "...", "by": "agent"}
     assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
-    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Final check failed: ..."}
+    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Final check failed: ...", "by": "agent"}
     assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz (final check sınırlar)
-    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ..."}  # reddedilen çağrının argument'ı yok
+    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ...", "by": "agent"}  # reddedilen çağrının argument'ı yok
     assert guards.earlier_calls(other_sql, past(rejected)) == []
     broken = {"tool": "execute_sql", "args": {}, "error": "Rejected: ..."}  # ör. bozuk JSON, önceden çalışmış SQL var
     assert guards.earlier_calls(broken, past(old)) == []

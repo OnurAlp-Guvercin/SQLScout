@@ -25,7 +25,7 @@ def answer(question, model):
     except RuntimeError as error:  # ör. API birkaç denemeye rağmen cevap vermedi: soru yanlış sayılır, koşu sürer
         return {"question_id": question["question_id"], "db_id": question["db_id"], "sql": None, "correct": False,
                 "error": str(error), "seconds": round(time.monotonic() - start, 2)}
-    sql = extract_sql(reply["text"])
+    sql = guards.extract_sql(reply["text"])
     gold = evaluate.run_gold(question)
     row = {"question_id": question["question_id"], "db_id": question["db_id"], "sql": sql,
            "correct": evaluate.is_correct(question["db_path"], sql, gold),
@@ -34,13 +34,6 @@ def answer(question, model):
     if not gold["ok"]:
         row["gold_error"] = gold["error"]
     return row
-
-
-def extract_sql(text):
-    """Modelin cevabındaki ilk ``` bloğunun içi (kapanmamışsa metnin sonuna kadar); blok yoksa cevabın tamamı. Temizlik
-    agent'ınkiyle aynıdır (guards.clean_sql)."""
-    start = text.find("```")
-    return guards.clean_sql(text[start:] if start >= 0 else text)
 
 
 def main():

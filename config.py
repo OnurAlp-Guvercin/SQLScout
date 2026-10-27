@@ -35,10 +35,11 @@ LLM_TIMEOUT_SECONDS = 300
 LLM_RETRIES = 8  # geçici hatada bekleme 5, 10, 20, ... 320 sn
 
 # Agent loop (adım 2)
-MAX_TOOL_CALLS = 10  # agent'ın tool-call budget'ı (teacher bunun yarısını alır); reddedilen ve bozuk çağrılar da sayılır
+MAX_TOOL_CALLS = 10  # agent'ın ve handoff'tan sonra teacher'ın tool-call budget'ı; reddedilen ve bozuk çağrılar da sayılır
 BUDGET_WARNING = 2  # kalan budget her sonucun altında yazar; bu kadar kalınca "submit et" hatırlatması da eklenir
 MAX_REPEATS = 3  # aynı çağrı bu kadar kez tekrarlanırsa agent takılmış sayılır: handoff
 PROGRESS_CALLS = 4  # agent ilk bu kadar tool call'ında dolu sonuç veren bir SQL çalıştıramadıysa: handoff
+WASTED_CALLS = 2  # agent'ın ilk PROGRESS_CALLS çağrısından bu kadarı boşa gittiyse (okunamadı, tekrar, ret): handoff
 
 # Guardrail'ler (her adım)
 SHOWN_ROWS = 20  # agent'ın gördüğü en fazla satır

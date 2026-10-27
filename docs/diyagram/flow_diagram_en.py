@@ -42,7 +42,7 @@ def lane_headers():
       'Exposed as the <i>execute_sql</i> tool',
       '<b>Rule:</b> every submitted answer has really been executed'),
      ('teacher','TEACHER LLM','Qwen3.5-9B (API) · target Qwen3.6-27B',
-      'Checks the agent\'s answer. On a handoff, continues <b>where the agent left off</b>, with half the budget (5 tool calls) and the same tools',
+      'Checks the agent\'s answer. On a handoff, solves the question <b>from scratch</b> with its own agent loop, 10 tool calls and the same tools',
       '<b>Role:</b> approves or rejects the agent\'s answer; solves the case the agent could not, its solution becomes training data'),
     ]
     for x,(k,t,s,a,b) in zip([LX[0],LX[2],LX[3],LX[4]],heads):
@@ -101,11 +101,11 @@ divs.append('''<div class="ag" style="left:86px;top:690px;width:290px">
 <li>Chooses the order itself: search a value, explore the data or try a query</li>
 <li>Look at the real result, fix it if needed</li>
 <li><i>submit</i> the SQL that answers the question</li></ul>
-<p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows</p></div>''')
+<p>Budget: at most 10 tool calls; handoff if none of the first 4 returns rows or 2 of them are wasted</p></div>''')
 
 # handoff from agent (top)
 arrow([(390,524),(1736,524),(1736,1036)],'t',w=3)
-label(640,524,'<b>Handoff:</b> no progress in 4 steps · 3 repeats · out of budget','t')
+label(640,524,'<b>Handoff:</b> no progress · wasted calls · 3 repeats · out of budget','t')
 
 node(822,546,324,118,'harness','search_values','The spelling and column of a value step 1 does not show · similar column names if no value',tsize=19)
 arrow([(390,584),(818,584)],'k'); label(606,584,'search_values','k')
@@ -128,7 +128,7 @@ node(822,1036,324,128,'decision','Final check','Runs without error · the agent 
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 
-node(1574,1040,324,110,'teacher','Teacher','Takes the agent\'s context and continues where it left off, with half the budget (5 tool calls) and the same tools',tsize=19)
+node(1574,1040,324,110,'teacher','Teacher','Does not see the agent\'s conversation: first writes a single SQL, then fixes it in its own loop with 10 tool calls',tsize=19)
 arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice or teacher says no','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'the teacher\'s submit goes here too','t')
 
@@ -153,7 +153,7 @@ for c,t,d in items:
     arrow([(x,ly),(x+56,ly)],c,dashed=d)
     divs.append(f'<div class="lg" style="left:{x+70}px;top:{ly-13}px">{t}</div>')
     x+=360
-divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. It submits the SQL it chooses as the answer; the answer passes a final check, the teacher approves it, and everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which continues where it left off. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
+divs.append('''<div class="idea" style="left:66px;top:1790px;width:1830px"><b>Key idea:</b> the agent decides for itself which tool to use: it searches for values, tries SQL, looks at the real result and fixes it. It submits the SQL it chooses as the answer; the answer passes a final check, the teacher approves it, and everything that is submitted has really been executed. If it makes no progress or gets stuck, the agent hands the task over to the teacher (handoff), which solves it from scratch with its own agent loop. Each question\'s whole conversation is written to the experience log; the agent is trained on it later.</div>''')
 
 markers=''.join(f'<marker id="m{k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="{v}"/></marker>' for k,v in ARROW.items())
 page=f'''<!doctype html><html><head><meta charset="utf-8"><style>
