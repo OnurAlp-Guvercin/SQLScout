@@ -342,3 +342,16 @@ def test_rejected_teacher_answer_comes_back_as_a_note(db, fake_model, monkeypatc
     answer = loop.answer_question("How many items?", "", db)
     assert answer["steps"][-3]["result"] == submit.REVIEWER_NOTE
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
+
+
+def test_agent_removes_an_extra_column_after_the_note(db, fake_model, monkeypatch):
+    monkeypatch.setattr(submit, "extra_column_note",
+                        lambda sql, context: submit.COLUMNS_NOTE.format(columns="`id`, `city`") if "id, city" in sql else None)
+    replies, _ = fake_model
+    replies += [execute_reply("SELECT id, city FROM items WHERE id = 5"),
+                submit_reply("SELECT id, city FROM items WHERE id = 5"),  # fazladan sütun: not döner
+                execute_reply("SELECT city FROM items WHERE id = 5"), submit_reply("SELECT city FROM items WHERE id = 5")]
+    answer = loop.answer_question("Which city has item 5?", "", db)
+    assert answer["steps"][1]["result"] == submit.COLUMNS_NOTE.format(columns="`id`, `city`")
+    assert answer["label"] == "ok" and answer["answered_by"] == "agent"
+    assert answer["sql"] == "SELECT city FROM items WHERE id = 5" and answer["handoff_reason"] is None

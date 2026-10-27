@@ -121,7 +121,7 @@ node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boş ya da yalnı
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
-node(822,1036,324,128,'decision','Final check','Hatasız çalışıyor mu · agent sonucunu gördü mü (görmediyse gösterilir) · teacher onaylıyor mu',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','Hatasız çalışıyor mu · agent sonucunu gördü mü (görmediyse gösterilir) · fazladan sütun yok mu · teacher onaylıyor mu',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'geçmedi → not · çalışmaya devam','p')
 

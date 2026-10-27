@@ -35,7 +35,7 @@ Ok renkleri: **siyah** tool call, **mavi** agent'a dönen observation, **mor** k
 | Harness | Agent'ın etrafındaki normal kod: tool'ları çalıştırır, kontrolleri ve handoff'u yönetir. İçinde LLM yok |
 | Pre-check | SQL çalıştırılmadan önce harness'ın yaptığı ucuz kontroller: salt okuma mı, `EXPLAIN` hata veriyor mu, cache'te var mı (adım 5) |
 | Cache | Aynı soru içinde daha önce çalışmış SQL'lerin saklanan sonuçları; aynı SQL yeniden çalıştırılmaz |
-| Final check | Cevap dönmeden önceki son kontrol: submit edilen SQL hatasız çalışıyor mu, agent sonucunu görmüş mü, teacher onaylıyor mu (adım 7) |
+| Final check | Cevap dönmeden önceki son kontrol: submit edilen SQL hatasız çalışıyor mu, agent sonucunu görmüş mü, sonuçta sorunun istemediği bir sütun var mı, teacher onaylıyor mu (adım 7) |
 | Handoff | İşin büyük teacher modele bırakılması |
 | Evidence | BIRD'ün her soruyla birlikte verdiği kısa ipucu metni (ör. "iade edilen = `status = 'returned'`") |
 | Result key | Bir sorgu sonucunu karşılaştırmak için kullanılan anahtar. Sonucun bütün satırları küme olarak alınır: satır sırası ve tekrar eden satırlar önemsiz, sütun sırası önemli (BIRD'ün resmi kuralı). Cevap, result key'i doğru SQL'inkiyle aynıysa doğrudur |
@@ -130,9 +130,10 @@ Sorgu veritabanında salt okunur çalıştırılır: keşif ve deneme sorguları
 Agent cevap olarak seçtiği SQL'i `submit(sql="SELECT ...")` ile gönderir; arada attığı sorgular cevabı etkilemez. Cevap dönmeden önce son kontrol:
 - **Salt okuma mı, tablolar ve sütunlar var mı, hatasız çalışıyor mu?** (adım 5–6; agent bu SQL'i daha önce çalıştırdıysa sonuç cache'ten gelir). Hata veren cevap geçmez. Boş sonuç geçer.
 - **Agent bu SQL'in sonucunu görmüş müydü?** Agent sonucuna bakmadığı bir cevabı gönderemez. Görmediyse harness sorguyu çalıştırır, sonucunu agent'a gösterir ve "soruyu cevaplıyorsa yeniden submit et" der → 2. Bu bir hata sayılmaz. Örnek: agent hiç denemeden `WHERE County = 'Alemeda'` yazdıysa boş sonucu burada görür ve değeri düzeltir. Agent'a en fazla 20 satır gösterildiği için büyük sonuçlar sorun olmaz.
+- **Sonuçta sorunun istemediği bir sütun var mı?** Keşif sorguları kontrol için yardımcı sütunlar seçer (ör. id, ad); son cevapta bunlar kalırsa BIRD cevabı yanlış sayar. Sonuç birden çok sütunluysa teacher'a yalnızca soru, evidence ve sütun adları gösterilir ve "soru bu sütunların her birini istiyor mu? evet/hayır" diye sorulur. Örnek: soru bir setin id'sini istiyor, sonuç `id, name, totalSetSize` → "hayır". "Hayır" derse "sonuçta sorunun istemediği bir sütun var" notu döner (→ 2): agent cevabı kendisi düzeltir; bu final check hakkından düşer. Agent aynı SQL'i yeniden submit ederse sütunların istendiğinde ısrar ediyor sayılır: sütun kontrolü atlanır, kararı teacher'ın genel kontrolü verir; böylece kontrolün yanlış bir "hayır"ı doğru cevabı handoff'a götürmez. Tek sütunlu sonuç sorulmaz. Geniş "doğru mu?" sorusunda teacher fazladan sütunları fark etmiyordu; yalnızca sütunları soran dar soruda fark ediyor.
 - **Teacher cevabı onaylıyor mu?** Çalışan bir SQL yanlış da olabilir. Agent'ın cevabını teacher kontrol eder: adım 1'in bağlamını, SQL'i ve sonucunu (agent'a yönelik `search_values` notu olmadan) görüp "bu soruyu doğru cevaplıyor mu? evet/hayır" sorusuna tek kelimeyle cevap verir. "Hayır" derse iş teacher'a geçer → 8. Handoff'tan sonra teacher'ın kendi `submit`'i de aynı kontrolden geçer; "hayır" çıkarsa iş kimseye geçmez: teacher'a "cevap yanlış bulundu, soruya ve evidence'a göre düzelt" notu döner ve bu final check hakkından düşer. Teacher'ın API'sine birkaç denemeye rağmen ulaşılamazsa agent'ın cevabı kaybolmasın diye kabul edilir; kontrolün yapılamadığı sonuç kaydına yazılır (`teacher_error`).
 
-Geçti → **cevap döner ✔** (label `ok`). Final check'ten geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
+Geçti → **cevap döner ✔** (label `ok`). Final check'ten ya da sütun kontrolünden geçmedi → nedeni agent'a not olarak döner → 2. İkinci kez geçmezse → 8.
 
 ### 8. Handoff
 
@@ -170,6 +171,7 @@ Handoff'u harness yapar: ilk 4 adımda ilerleme yok ya da 2 çağrı boşa gitti
 | Temperature 0; takılınca örnekleme | En olası cevap tek SQL'de daha doğru; ama aynı girdiye hep aynı cevap verildiği için reddedilen ya da tekrarlanan çağrıdan sonra örneklenir | — |
 | Sonuçlar BIRD'ün resmi kuralıyla karşılaştırılır (result key) | "Aynı sonuç" tek bir yerde tanımlıdır | BIRD |
 | Adım 1 olabildiğince çok bilgi verir (sütun açıklamaları, column profile'ları) | Her search bir tool call harcar. Bilgi baştan gelirse budget denemeye kalır | DualSQL, HarnessSQL |
+| Fazladan sütunu ayrı ve dar bir soru yakalar | Döngüde keşif sorgularının yardımcı sütunları cevapta kalıyordu (0.8B'de de 9B'de de); tek seferlik SQL'de bu olmuyor. Teacher geniş kontrolde bunu fark etmiyordu, yalnızca sütunları soran soruda fark ediyor. Not çağırana döner: düzeltmesi kolay, handoff gerekmez | — |
 | Agent'ın cevabını teacher onaylar | Çalışan bir SQL yanlış da olabilir; küçük model kendi yanlışını fark etmez. Teacher'ın tek kelimelik kontrolü, doğru cevapları ucuza kabul eder, yanlışları teacher'a gönderir | — |
 | Fallback yalnızca submit edilmiş bir SQL'dir | Agent veriyi keşfedebildiği için en son çalışan sorgu bir keşif sorgusu olabilir; submit edilen SQL ise birinin "cevabım bu" dediği sorgudur. Kabul edilmediği için `fallback` etiketiyle düşük güvenli döner | — |
 | İlerlemeyen agent erken handoff yapar | İlk adımlarında dolu sonuç alamayan ya da çağrıları boşa giden agent genelde soruyu çözemiyor; erken handoff aynı doğrulukla daha az tool call harcar | — |

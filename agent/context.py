@@ -30,6 +30,7 @@ class Context:
     calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden dolar
     cache: dict = field(default_factory=dict)  # execute_sql.sql_key(sql) → gerçek sonuç (adım 5)
     seen: set = field(default_factory=set)  # sonucunu agent'ın (handoff'tan sonra teacher'ın) gördüğü SQL'ler (execute_sql.sql_key); submit buna bakar
+    column_noted: set = field(default_factory=set)  # sütun notu verilmiş SQL'ler (execute_sql.sql_key); yeniden submit edilirse sütun kontrolü atlanır
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
     wasted_calls: int = 0  # okunamayan, tekrarlanan ya da reddedilen çağrılar; agent'ın ilk 4 çağrısında 2 olursa handoff

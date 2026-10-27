@@ -124,7 +124,7 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty or only 0/N
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1036,324,128,'decision','Final check','Runs without error · the agent has seen its result (else it is shown) · the teacher approves',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','Runs without error · the agent has seen its result (else it is shown) · no extra column · the teacher approves',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 

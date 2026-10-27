@@ -150,6 +150,7 @@ def start_teacher(context):
     context.agent_messages = context.messages
     context.messages = context.messages[:2]
     context.seen = set()
+    context.column_noted = set()
     first_try(context)
 
 

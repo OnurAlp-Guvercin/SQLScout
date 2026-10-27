@@ -29,7 +29,8 @@ answers the question, or to explore the data when you are not sure about somethi
 holds or how two tables are linked).
 - `search_values` finds how a value is written in the database and in which column. The value samples show at most \
 {config.PROFILE_TOP_VALUES} values per column.
-- `submit` gives your final answer: when a query you ran answers the question, submit exactly that query.
+- `submit` gives your final answer: when a query you ran answers the question, submit exactly that query. It must \
+return only what the question asks for: leave out helper columns you added only while exploring.
 
 {SQL_RULES}"""
 
@@ -41,6 +42,15 @@ answers the question correctly: the right tables, joins, conditions and values, 
 {SQL_RULES}
 
 Reply with exactly one word: yes or no."""
+
+# Sütun kontrolü (adım 7): birden çok sütunlu cevapta soru her sütunu istiyor mu? Döngüde keşif sorgularının
+# yardımcı sütunları (id, ad) cevapta kalıyordu; genel kontrol bunu fark etmiyordu.
+COLUMN_CHECK = """You are an expert SQLite analyst. You are given a question, sometimes evidence, and the columns of a \
+SQL query's result written to answer it. Decide whether the question asks for every one of these columns. A column \
+the question does not ask for, e.g. an id, name or count that was only added to check the answer, is extra. If the \
+question asks for one value (e.g. a count, a percentage or a difference), the result should have only that column.
+
+Reply with exactly one word: yes if every column is asked for, no if there is an extra column."""
 
 # Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
 SEARCH_VALUES = {"type": "function", "function": {
@@ -61,8 +71,9 @@ EXECUTE_SQL = {"type": "function", "function": {
 
 SUBMIT = {"type": "function", "function": {
     "name": "submit",
-    "description": "Submit the SQLite query that answers the question as the final answer. Run it with execute_sql "
-                   "first and look at its result. This ends the task.",
+    "description": "Submit the SQLite query that answers the question as the final answer. It must return only the "
+                   "columns the question asks for. Run it with execute_sql first and look at its result. This ends "
+                   "the task.",
     "parameters": {"type": "object", "required": ["sql"],
                    "properties": {"sql": {"type": "string", "description": "The final SQLite query."}}},
 }}

@@ -39,13 +39,14 @@ def db(tmp_path):
 
 @pytest.fixture
 def fake_model(monkeypatch):
-    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder. Teacher kontrolü (adım 7) sıraya
-    girmez: sahte teacher her cevabı onaylar; onaylamamayı deneyen testler submit.teacher_approves'u değiştirir.
+    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder. Teacher kontrolü ve sütun kontrolü
+    (adım 7) sıraya girmez: sahte teacher her cevabı onaylar; onaylamamayı deneyen testler submit.teacher_approves'u ya
+    da submit.extra_column_note'u değiştirir.
     Teacher'ın tek seferlik ilk denemesi de sıraya girmez: hep FIRST_TRY_SQL'i yazar."""
     replies, seen = [], []
 
     def fake_chat(messages, tools=None, temperature=None, model=None):
-        if messages[0]["content"] == prompts.CHECK_ANSWER:
+        if messages[0]["content"] in (prompts.CHECK_ANSWER, prompts.COLUMN_CHECK):
             return text_reply("yes")
         if messages[0]["content"] == prompts.WRITE_SQL:  # teacher'ın tek seferlik ilk denemesi (agent/loop.py first_try)
             return text_reply(f"```sql\n{FIRST_TRY_SQL}\n```")

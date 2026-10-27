@@ -22,7 +22,7 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try, or a small query to check something it is not sure about |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
 | 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty or only 0/NULL, a note suggests checking the value's spelling with `search_values` |
-| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
+| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), does the result have only the columns the question asks for, and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
 | 8 | Handoff | Teacher | No progress or 2 wasted calls in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher solves the question from scratch: it first writes a single SQL, then fixes it in its own agent loop with 10 tool calls; its answer is checked too |
 
 Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL) → 5 → 6 (1 row) → 2 → 7 (passed) → ✔
@@ -49,7 +49,7 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 | `harness/prepare.py` | 1 | Initial context: schema, column descriptions and profiles, evidence |
 | `harness/tools/search_values.py` | 3 | Searching values |
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
-| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits; the teacher checks the agent's answer |
+| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits; no column the question does not ask for; the teacher checks the agent's answer |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |
 | `baseline.py` | | The base for comparison: a tool-free single SQL |
