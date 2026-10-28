@@ -46,6 +46,8 @@ def read_tool_call(reply, tools):
         args = json.loads(step["arguments"])
     except json.JSONDecodeError:
         args = None
+    if isinstance(args, dict) and not is_encodable(args):
+        args = None
     if not isinstance(args, dict):
         # Model sunucusu geçmişteki argument'ları JSON object olarak okur; bozuk hâli konuşmaya konursa sonraki istek hata verir.
         step["arguments"] = "{}"
@@ -83,13 +85,13 @@ def is_empty(value):
 
 
 def earlier_calls(step, context):
-    """Bu çağrının, çağıranın (agent ya da teacher) kendi yaptığı aynıları: teacher agent'ın konuşmasını görmediği için
-    onun çağrıları teacher'a tekrar sayılmaz. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
+    """Bu çağrının, çağıranın (small model ya da large model) kendi yaptığı aynıları: large model small model'in konuşmasını görmediği için
+    onun çağrıları large model'e tekrar sayılmaz. Aynı tool ve aynı argument'lar "aynı çağrı"dır; execute_sql'de SQL'in
     boşlukları önemsenmez. submit ve reddedilen çağrılar hiç tekrar sayılmaz (submit'i final check sınırlar)."""
     if step.get("error") or step["tool"] == "submit":
         return []
     same = []
-    by = "teacher" if context.teacher else "agent"
+    by = "large_model" if context.large_model else "small_model"
     for old in context.steps:
         if old["by"] != by or old["tool"] != step["tool"] or not old["args"]:
             continue
@@ -102,19 +104,31 @@ def earlier_calls(step, context):
     return same
 
 
+def is_encodable(args):
+    """Metinler UTF-8'e çevrilebiliyor mu? JSON'daki tek başına bir "\\ud800" kaçışı çevrilemez; SQLite'a giderse çöker."""
+    try:
+        json.dumps(args, ensure_ascii=False).encode()
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def repeat_note(earlier):
     return ("Not run again: this exact call was already made and its result will not change. Try a different query, "
             "or submit your answer. Its result was:\n" + earlier[0]["result"])
 
 
-def compress(context):
-    """Konuşma CONVERSATION_MAX_TOKENS'ı aşarsa en eski observation'lar, sınırın altına inene kadar tek satıra iner.
-    Sistem prompt'u ve adım 1'in bağlamı (ilk iki mesaj) kısaltılmaz."""
-    for message in context.messages[2:]:
-        if conversation_tokens(context.messages) <= config.CONVERSATION_MAX_TOKENS:
-            return
-        if message["role"] in ("tool", "user") and not message["content"].startswith(SHORTENED):
+def compress(messages):
+    """Modele gidecek mesajlar: konuşma CONVERSATION_MAX_TOKENS'ı aşarsa en eski observation'lar, sınırın altına inene
+    kadar tek satıra iner. Sistem prompt'u ve adım 1'in bağlamı (ilk iki mesaj) kısaltılmaz. Bir kopya döner: konuşmanın
+    kendisi (experience log) tam kalır."""
+    messages = [dict(message) for message in messages]
+    for message in messages[2:]:
+        if conversation_tokens(messages) <= config.CONVERSATION_MAX_TOKENS:
+            break
+        if message["role"] in ("tool", "user"):
             message["content"] = shorten(message["content"])
+    return messages
 
 
 def shorten(observation):

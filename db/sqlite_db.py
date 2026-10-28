@@ -30,8 +30,8 @@ def error_result(message, timed_out=False):
 def execute(db_path, sql, timeout_seconds):
     """Sorguyu en fazla timeout_seconds saniye çalıştırır (keşifte EXPLORE_TIMEOUT_SECONDS, ana sorguda
     ANSWER_TIMEOUT_SECONDS). Agent'a en fazla MAX_RESULT_ROWS satır return eder; result_key bütün satırlardan
-    hesaplanır. Zaman aşımında timed_out True olur. MAX_TOTAL_ROWS'tan çok satır (ör. JOIN koşulu unutulmuş bir sorgu)
-    hata sayılır: bütün satırlar result_key için bellekte tutulur."""
+    hesaplanır. Zaman aşımında timed_out True olur. MAX_TOTAL_ROWS'tan çok farklı satır (ör. JOIN koşulu unutulmuş bir
+    sorgu) hata sayılır: farklı satırların hepsi result_key için bellekte tutulur."""
     if not is_read_only(sql):
         return error_result("Only queries that start with SELECT or WITH can be run.")
 
@@ -46,13 +46,13 @@ def execute(db_path, sql, timeout_seconds):
         row_count = 0
         for row in cursor:
             row_count += 1
-            if row_count > config.MAX_TOTAL_ROWS:
-                return error_result(f"Too many rows: the result has more than {config.MAX_TOTAL_ROWS} rows. "
-                                    "Add a join condition or a filter.")
             if len(rows) < config.MAX_RESULT_ROWS:
                 rows.append(row)
             all_rows.add(normalize(row))
-    except sqlite3.Error as error:
+            if len(all_rows) > config.MAX_TOTAL_ROWS:  # tekrarlar sayılmaz: puanlama satır kümesine bakar
+                return error_result(f"Too many rows: the result has more than {config.MAX_TOTAL_ROWS} different rows. "
+                                    "Add a join condition or a filter.")
+    except (sqlite3.Error, ValueError) as error:  # ValueError: ör. SQL metninde kodlanamayan bir karakter
         if time.monotonic() > deadline:
             return error_result(f"Timeout: the query did not finish in {timeout_seconds} seconds.", timed_out=True)
         return error_result(str(error))

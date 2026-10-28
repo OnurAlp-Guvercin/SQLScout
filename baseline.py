@@ -22,13 +22,14 @@ def answer(question, model):
     messages = [{"role": "system", "content": prompts.WRITE_SQL}, {"role": "user", "content": context}]
     try:
         reply = llm.chat(messages, temperature=0, model=model)
-    except RuntimeError as error:  # ör. API birkaç denemeye rağmen cevap vermedi: soru yanlış sayılır, koşu sürer
+        sql = guards.extract_sql(reply["text"])
+        gold = evaluate.run_gold(question)
+        correct = evaluate.is_correct(question["db_path"], sql, gold)
+    except Exception as error:  # ör. API birkaç denemeye rağmen cevap vermedi: soru yanlış sayılır, koşu sürer
         return {"question_id": question["question_id"], "db_id": question["db_id"], "sql": None, "correct": False,
                 "error": str(error), "seconds": round(time.monotonic() - start, 2)}
-    sql = guards.extract_sql(reply["text"])
-    gold = evaluate.run_gold(question)
     row = {"question_id": question["question_id"], "db_id": question["db_id"], "sql": sql,
-           "correct": evaluate.is_correct(question["db_path"], sql, gold),
+           "correct": correct,
            "prompt_tokens": reply["prompt_tokens"], "completion_tokens": reply["completion_tokens"],
            "cost": reply["cost"] or 0, "seconds": round(time.monotonic() - start, 2)}
     if not gold["ok"]:
@@ -39,7 +40,7 @@ def answer(question, model):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--name", required=True)
-    parser.add_argument("--model", default=config.POLICY_MODEL)
+    parser.add_argument("--model", default=config.SMALL_MODEL)
     parser.add_argument("--limit", type=int)
     args = parser.parse_args()
 
@@ -48,7 +49,7 @@ def main():
     with ThreadPoolExecutor(config.EVAL_WORKERS) as pool:
         rows = list(pool.map(lambda question: answer(question, args.model), questions))
     header = {"experiment": args.name, "dataset": "bird", "split": "dev", "limit": args.limit,
-              "question_count": len(rows), "system": "baseline", "model": args.model, "temperature": 0,
+              "question_count": len(rows), "system": "baseline", "code": evaluate.code_version(), "model": args.model, "temperature": 0,
               "prompt": prompts.WRITE_SQL}
     config.RESULTS_DIR.mkdir(exist_ok=True)
     out_path = config.RESULTS_DIR / f"{args.name}.jsonl"

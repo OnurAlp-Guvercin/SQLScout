@@ -68,31 +68,31 @@ def test_evaluation_adds_split_and_correctness_to_the_experience_log(db, fake_mo
     assert row["correct"] is True and "messages" not in row  # konuşma sonuç dosyasına girmez
 
 
-def test_evaluation_scores_the_sql_the_teacher_checked(db, fake_model):
+def test_evaluation_scores_the_sql_the_large_model_checked(db, fake_model):
     replies, _ = fake_model
     replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
     question = {"question_id": 7, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",
                 "SQL": "SELECT COUNT(id) FROM items"}
     row = evaluate.run_one(question)
-    assert row["teacher_check"] == {"sql": "SELECT COUNT(*) FROM items", "approved": True,
-                                    "reason": "It answers the question.", "correct": True}
+    assert row["large_model_checks"] == [{"sql": "SELECT COUNT(*) FROM items", "approved": True,
+                                      "reason": "It answers the question.", "correct": True}]
 
 
-def test_teacher_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_model, monkeypatch):
+def test_large_model_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_model, monkeypatch):
     replies, _ = fake_model
-    replies += [execute_reply("SELECT id FROM items"), submit_reply("SELECT id FROM items")]  # agent: teacher "no"
-    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]  # teacher
+    replies += [execute_reply("SELECT id FROM items"), submit_reply("SELECT id FROM items")]  # small model: large model "no"
+    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]  # large model
     fake = llm.chat
 
-    def teacher_says_no(messages, **kwargs):  # yalnızca agent'ın cevabına "no"
+    def large_model_says_no(messages, **kwargs):  # yalnızca agent'ın cevabına "no"
         if messages[0]["content"] == prompts.CHECK_ANSWER and "SELECT id FROM items" in messages[1]["content"]:
             return text_reply('{"reason": "It lists ids.", "correct": false}')
         return fake(messages, **kwargs)
 
-    monkeypatch.setattr(llm, "chat", teacher_says_no)
+    monkeypatch.setattr(llm, "chat", large_model_says_no)
     question = {"question_id": 7, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",
                 "SQL": "SELECT COUNT(id) FROM items"}
     row = evaluate.run_one(question)
-    assert row["correct"] is True and row["answered_by"] == "teacher"
-    assert row["teacher_check"] == {"sql": "SELECT id FROM items", "approved": False, "reason": "It lists ids.",
-                                    "correct": False}
+    assert row["correct"] is True and row["answered_by"] == "large_model"
+    assert row["large_model_checks"] == [{"sql": "SELECT id FROM items", "approved": False, "reason": "It lists ids.",
+                                      "correct": False}]

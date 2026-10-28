@@ -1,6 +1,6 @@
 """Modele request atar ve cevabı return eder. İstekler yerel mlx_lm.server'a ya da OpenRouter API'sine gider;
 ikisi de aynı (OpenAI) biçimi konuşur, adres config.py'de.
-Policy, teacher ve base (baseline.py) hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
+Small model, large model ve base (baseline.py) hep bunu kullanır. Denemek için: python -m agent.llm "soru" """
 
 import functools
 import http.client
@@ -11,18 +11,17 @@ import time
 import urllib.error
 import urllib.request
 
-from huggingface_hub import hf_hub_download
 from tokenizers import Tokenizer
 
 import config
 
 
 def chat(messages, temperature=None, tools=None, model=None):
-    """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa policy modeli.
+    """messages: [{"role": "system"/"user"/"assistant", "content": "..."}]. model yoksa small model.
     Return: text, tool_calls, prompt_tokens, completion_tokens, cost (dolar, yalnızca API), seconds, provider."""
-    model = model or config.POLICY_MODEL
+    model = model or config.SMALL_MODEL
     body = request_body(messages, temperature, tools, model)
-    url = config.TEACHER_URL if model == config.TEACHER_MODEL else config.LLM_URL
+    url = config.LARGE_MODEL_URL if model == config.LARGE_MODEL else config.SMALL_MODEL_URL
     headers = {"Content-Type": "application/json"}
     key = api_key()
     if key and url.startswith("https://"):  # key yalnızca API'ye gider; yerel sunucu istemez
@@ -50,15 +49,15 @@ def request_body(messages, temperature, tools, model):
     body = {
         "model": model,
         "messages": messages,
-        "temperature": config.POLICY_TEMPERATURE if temperature is None else temperature,
-        "top_p": config.POLICY_TOP_P,
+        "temperature": config.TEMPERATURE if temperature is None else temperature,
+        "top_p": config.TOP_P,
         "max_tokens": config.MAX_NEW_TOKENS,
         # Thinking modu kapalı: ilki OpenRouter, ikincisi yerel mlx_lm.server için.
         "reasoning": {"enabled": False},
         "chat_template_kwargs": {"enable_thinking": False},
         "usage": {"include": True},  # OpenRouter request'in maliyetini de return eder
     }
-    providers = config.TEACHER_PROVIDERS if model == config.TEACHER_MODEL else config.POLICY_PROVIDERS
+    providers = config.LARGE_MODEL_PROVIDERS if model == config.LARGE_MODEL else config.SMALL_MODEL_PROVIDERS
     if providers:
         body["provider"] = {"order": providers, "allow_fallbacks": False}
     if tools:
@@ -67,7 +66,7 @@ def request_body(messages, temperature, tools, model):
 
 
 def post(url, body, headers):
-    # API bazen geçici hata verir (429: çok istek, 5xx: sunucu hatası); bunlarda bekleyip tekrar denenir.
+    # API bazen geçici hata verir (408: zaman aşımı, 429: çok istek, 5xx: sunucu hatası); bunlarda bekleyip tekrar denenir.
     for attempt in range(config.LLM_RETRIES):
         last_attempt = attempt == config.LLM_RETRIES - 1
         request = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
@@ -76,11 +75,13 @@ def post(url, body, headers):
                 answer = json.load(response)
             # OpenRouter sağlayıcının hatasını bazen 200 cevabının içinde verir (ör. 504 zaman aşımı).
             code = (answer.get("error") or {}).get("code")
-            temporary = isinstance(code, int) and (code == 429 or code >= 500)
+            temporary = isinstance(code, int) and (code in (408, 429) or code >= 500)
             if not temporary or last_attempt:
                 return answer
         except urllib.error.HTTPError as error:
-            temporary = error.code == 429 or error.code >= 500
+            temporary = error.code in (408, 429) or error.code >= 500
+            if error.code in (401, 402):  # key yanlış ya da kredi bitti: her soru etkilenir, koşu sürmesin
+                raise SystemExit(f"Model API hatası {error.code}: API key'i ve krediyi kontrol et.") from error
             if not temporary or last_attempt:
                 detail = error.read().decode(errors="replace")[:500]
                 raise RuntimeError(f"Model API hatası {error.code}: {detail}") from error
@@ -106,18 +107,18 @@ def api_key():
 
 
 def count_tokens(text):
-    """Metnin Qwen tokenizer'ıyla kaç token olduğu. API gerekmez; tokenizer dosyası bir kez indirilir."""
+    """Metnin Qwen tokenizer'ıyla kaç token olduğu. API ve internet gerekmez: tokenizer models/ altındaki dosyadır."""
     return len(tokenizer().encode(text).ids)
 
 
 @functools.lru_cache(maxsize=None)
 def tokenizer():
-    return Tokenizer.from_file(hf_hub_download(config.TOKENIZER_MODEL, "tokenizer.json"))
+    return Tokenizer.from_file(str(config.PROJECT_DIR / config.TOKENIZER))
 
 
 if __name__ == "__main__":
     reply = chat([{"role": "user", "content": sys.argv[1]}])
     print(reply["text"])
     speed = reply["completion_tokens"] / reply["seconds"] if reply["seconds"] else 0
-    print(f"\n[{config.POLICY_MODEL} @ {reply['provider']}: {reply['prompt_tokens']} prompt token, "
+    print(f"\n[{config.SMALL_MODEL} @ {reply['provider']}: {reply['prompt_tokens']} prompt token, "
           f"{reply['completion_tokens']} cevap token, {reply['seconds']} sn, {speed:.1f} token/sn]")

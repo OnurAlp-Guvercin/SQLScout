@@ -62,15 +62,15 @@
 
 | Çalışma | Tarih | Model | Tarif | Sonuç | Bizim için ders |
 |---|---|---|---|---|---|
-| [HarnessSQL 2610.12274](https://arxiv.org/abs/2610.12274) | Eki | Qwen3 8B/14B | Harness içinde toplanan, doğrulanmış teacher izleriyle SFT → DAPO; ikili reward | Spider2-SQLite 15.5→45.2 (8B) | Harness içinde eğit. Başarısız tool call'ları eğitim verisinden silme. Bağlam 8K→32K: 27→45. Teacher seçimi kritik |
+| [HarnessSQL 2610.12274](https://arxiv.org/abs/2610.12274) | Eki | Qwen3 8B/14B | Harness içinde toplanan, doğrulanmış teacher izleriyle SFT → DAPO; ikili reward | Spider2-SQLite 15.5→45.2 (8B) | Harness içinde eğit. Başarısız tool call'ları eğitim verisinden silme. Bağlam 8K→32K: 27→45. Large model seçimi kritik |
 | [DualSQL 2609.18135](https://arxiv.org/abs/2609.18135) | Eyl | Qwen3 4B/8B | Yalnızca RL, iki rol tek ağırlıkta; tool'lar: FTS5 değer arama, profilleyici, execute; REX reward'u | BIRD dev **68.0 (4B)** / 71.1 | Rollout guardrail'leri: format hatasında kes, aynı çağrının tekrarını yasakla. Guardrail olmadan eğitim çöküyor |
 | [ReToolSQL 2608.27796](https://arxiv.org/abs/2608.27796) | Ağu | Gemma-4 31B / E4B | Ayrıcalıklı teacher izleriyle SFT → GRPO + DAPO; KL azaltılarak | 74.32 dev; E4B 68.45 | Tool seti bizimkine çok benziyor. Tool'lar ile RL birbirinin etkisini artırıyor. Küçük modelde KL'i azaltarak gitmek +2 |
 | [FineStep 2605.04719](https://arxiv.org/abs/2605.04719) | May | Qwen3 4B–30B | Ek model gerektirmeyen adım düzeyi process reward (hücre geri çağırma oranı) | **68.51 (4B, oylama)** | Ucuz adım düzeyi kredi. Tekrarlanan sorguyu cezalandır |
-| [SERL-SQL 2608.00485](https://arxiv.org/abs/2608.00485) | Ağu | Qwen2.5-Coder 7–32B | Teacher, student'ın eylemlerini yeniden puanlıyor; GRPO avantajları yalnızca SQL/tool token'larında yeniden ağırlıklanıyor | 76.56 (16 candidate arasından seçim) | Teacher sinyalini RL'in içine gömmenin bir yolu |
+| [SERL-SQL 2608.00485](https://arxiv.org/abs/2608.00485) | Ağu | Qwen2.5-Coder 7–32B | Teacher, student'ın eylemlerini yeniden puanlıyor; GRPO avantajları yalnızca SQL/tool token'larında yeniden ağırlıklanıyor | 76.56 (16 candidate arasından seçim) | Large model sinyalini RL'in içine gömmenin bir yolu |
 | [TRUST-SQL 2603.16448](https://arxiv.org/abs/2603.16448) | EMNLP'26 | Qwen3 4B/8B | Keşfet → Öner → Üret → Onayla; şema reward'u yalnızca cevap doğruysa veriliyor | 64.9 / 67.2 (4B) | Keşif tool'larının (ör. `search_values`) reward'u doğrulukla koşullanmalı. SFT olmadan model reward'u istismar ediyor |
 | [SQL-Trail](https://aclanthology.org/2026.acl-long.1677/) | ACL'26 | Qwen2.5-Coder 3–14B | 1k Claude izi ile SFT → GRPO; reward 5×doğruluk + 2×tur | 64.2 (7B, oylama) | Tur reward'u gereksiz uzunluğu kesiyor |
 | [BAP-SQL 2608.02876](https://arxiv.org/abs/2608.02876) | Ağu | **Qwen3.5-4B** | Analitik bir maliyet tahmincisi (EXPLAIN + istatistikler) + budget reward'u + çalışma zamanı kalkanı | Dar budget'ta +3.4; BIRD EX değişmiyor | `predict_sql`'e en yakın örnek. Yalnız dar budget'ta işe yarıyor, veritabanı yükünü azaltmıyor |
-| [SQLConductor 2606.23537](https://arxiv.org/abs/2606.23537) | Haz | 4B/8B LoRA orkestratör | MCTS ile toplanan izlerle SFT → müfredatlı GRPO; büyük modelleri yönetiyor | 73.2 | Küçük policy + büyük modeller kurgusu. SFT verisini en kısa çözüme göre değil, kararlılığa göre seç |
+| [SQLConductor 2606.23537](https://arxiv.org/abs/2606.23537) | Haz | 4B/8B LoRA orkestratör | MCTS ile toplanan izlerle SFT → müfredatlı GRPO; büyük modelleri yönetiyor | 73.2 | Small model + büyük modeller kurgusu. SFT verisini en kısa çözüme göre değil, kararlılığa göre seç |
 | [Progress-SQL 2606.06825](https://arxiv.org/abs/2606.06825) | Haz | 7B/14B | İlerleme reward'u + erken düzeltme bonusu | 67.5 (14B) | Hatadan toparlanmayı ödüllendirme şekli |
 | [MERIT 2606.00547](https://arxiv.org/abs/2606.00547) | May | Bellek seçici 4B | RL ile öğrenilen bellek getirme + 7B process reward model | BIRD-Interact 23.3→33.0 | Experience log'dan bellek getirme. Yalnızca başarılı yolları sakla |
 | [MARS-SQL 2511.01008](https://arxiv.org/abs/2511.01008) | ICML'26 | 3×7B | Öğrenilmiş verifier | 77.84 (verifier +8.5) | Final check aşamasının değeri büyük |
@@ -89,15 +89,15 @@
 | [EnvSimBench 2605.07247](https://arxiv.org/abs/2605.07247) | May | Tool geri bildirimi + durum değişiklikleri | 4B simülatör | Durum değişikliği sayısı arttıkça doğruluk uçuruma düşüyor (5+ değişiklikte ≤%4) | Eğitim verisini sonuç sınıfına göre dengele. Akıl yürütme izleri burada zarar veriyor |
 | [Qwen-AgentWorld 2606.24597](https://arxiv.org/abs/2606.24597) | Haz | 7 alanda dil tabanlı world model (35B/397B) | Simülatörde RL | Kontrolsüz simülasyon fayda sağlamıyor; kontrol edilebilir simülasyon + kural çapası +3.7 / +12.3 | Simülasyonla RL'de mutlaka gerçek çapa olmalı |
 | [WMRL 2608.12564](https://arxiv.org/abs/2608.12564) | Ağu | Deney sonucu | RL'de reward kaynağı | Eğitim 3–4 kat hızlı | Online yanlılık giderme + ters varyansla ağırlıklandırma |
-| [CoMAP 2606.02372](https://arxiv.org/abs/2606.02372) | Haz | Eylem geri bildirimi | Agent'ın değişen davranışına uyum için policy'nin kendi yolları üzerinde self-distillation'la güncelleniyor | Qwen3-4B'de +16.75% (göreli) | World model'i policy'nin güncel verisiyle sürekli yeniden eğit |
+| [CoMAP 2606.02372](https://arxiv.org/abs/2606.02372) | Haz | Eylem geri bildirimi | Agent'ın değişen davranışına uyum için policy'nin kendi yolları üzerinde self-distillation'la güncelleniyor | Qwen3-4B'de +16.75% (göreli) | World model'i small model'in güncel verisiyle sürekli yeniden eğit |
 | [Dual-Frontier 2609.26293](https://arxiv.org/abs/2609.26293) | Eyl | | Prediction'a yalnızca, beklenen kazanç world model hatası için sertifikalı sınırı aşıyorsa güven | Kanıtlı garanti | "Önce doğrula, sonra güven" ilkesi |
 | [Role-Stratified CRC 2607.24343](https://arxiv.org/abs/2607.24343) | Tem | | Her rol için ayrı conformal risk budget'ı | | Result type, result shape, values ve sorgu tipleri için ayrı eşikler |
 | [CYGNET 2606.04645](https://arxiv.org/abs/2606.04645) | Haz | Cypher sorguları için çalıştırma öncesi gate | Katmanlı kontrol: ayrıştırma → şema → ayna veritabanında çalıştırma | Yapısal hataların %100'ünü yakalıyor; semantik hataların %0'ını | Önce ucuz yapısal kontroller, sonra öğrenilmiş prediction |
 | [CacheRL 2606.14179](https://arxiv.org/abs/2606.14179) | Haz | | Gerçek çalıştırma sonuçlarının bulanık cache'i | | Cache, ilk ve en ucuz world model katmanı |
 | [AOSpec 2608.00881](https://arxiv.org/abs/2608.00881) | Ağu | Observation spekülasyonu | Spekülasyon her zaman doğrulanarak kullanılıyor | Gecikme %12–33 azalıyor | Prediction, doğrulanırsa gecikmeyi kayıpsız gizler |
 | [WorldEvolver 2606.30639](https://arxiv.org/abs/2606.30639) | Haz | | Seçici öngörü | Güçlü modellerde kazanç gürültü düzeyinde | Ham token olasılığı aşırı özgüvenli |
-| [World-model-as-tool](https://aclanthology.org/2026.acl-long.623/) | ACL'26 | | World model agent'a tool olarak veriliyor | Agent'lar adımların %1'inden azında çağırıyor; zorlanınca %5'e varan kayıp | Simülatörü kullanma kararı yalnızca policy'ye bırakılmamalı |
-| [Imperfect WMs are Exploitable 2605.15960](https://arxiv.org/abs/2605.15960) | May | | Teori | | Policy, world model'in hatalarını istismar eder |
+| [World-model-as-tool](https://aclanthology.org/2026.acl-long.623/) | ACL'26 | | World model agent'a tool olarak veriliyor | Agent'lar adımların %1'inden azında çağırıyor; zorlanınca %5'e varan kayıp | Simülatörü kullanma kararı yalnızca small model'e bırakılmamalı |
+| [Imperfect WMs are Exploitable 2605.15960](https://arxiv.org/abs/2605.15960) | May | | Teori | | Small model, world model'in hatalarını istismar eder |
 | [False Prophets 2607.23147](https://arxiv.org/abs/2607.23147) | Tem | | Saldırı | Yanlış prediction'ı tetikleme başarısı %95 | Prediction güvenlik korumalarını asla devre dışı bırakmamalı |
 
 ## 5. Doğrulama, seçim, güven ve calibration
@@ -130,12 +130,12 @@
 | [Top-K tool drift 2607.07050](https://arxiv.org/abs/2607.07050) | Tem | Qwen3.5'te top-K logit'ler tool call'u başlatan token'ı kaçırıyor | **Qwen3.5'e özgü:** top-K OPD'de tool başlangıç token'larını geri ekle |
 | [Sequential Beats Joint 2609.04108](https://arxiv.org/abs/2609.04108) | Eyl | Önce OPD, sonra RL; OPD, RL için SFT'den daha iyi bir başlangıç | 3 aşamalı tasarımımızı doğruluyor |
 | [RL Starts before RL 2609.28145](https://arxiv.org/abs/2609.28145) | Eyl | RL'den önce ters KL, sonra ileri KL | KL yönü seçimi |
-| [GATS 2609.37898](https://arxiv.org/abs/2609.37898) / [RSTG 2608.00782](https://arxiv.org/abs/2608.00782) | Eyl / Ağu | Teacher yalnızca tüm denemeleri başarısız olan gruplarda devreye giriyor ve zamanla geri çekiliyor | RL adımında teacher'ın rolü |
+| [GATS 2609.37898](https://arxiv.org/abs/2609.37898) / [RSTG 2608.00782](https://arxiv.org/abs/2608.00782) | Eyl / Ağu | Teacher yalnızca tüm denemeleri başarısız olan gruplarda devreye giriyor ve zamanla geri çekiliyor | RL adımında large model'in rolü |
 | [SGCD 2606.12634](https://arxiv.org/abs/2606.12634) | Haz | Doğrudan self-distillation tool kullanımını bozabiliyor | Kontrol policy gradient'te kalmalı |
 | [Solving w/o Stopping 2609.37326](https://arxiv.org/abs/2609.37326) | Eyl | OPD küçük modele çözmeyi öğretiyor, durmayı öğretmiyor | Düşünme kapalı ya da kısa düşünme modu kullan |
 | [Below the Noise Floor 2608.27729](https://arxiv.org/abs/2608.27729) | Ağu | Seed'ler arası standart sapma 2.8–48.7 puan | En az 3 seed'le değerlendir |
-| [OLIVE 2609.36246](https://arxiv.org/abs/2609.36246) | Eyl | Teacher, student'ın bıraktığı durumdan devam ediyor; log-olasılık gerekmiyor | **API ile kullanılan teacher için OPD alternatifi; handoff kayıtlarımız zaten bu yapıda** |
-| [BPM 2607.22334](https://arxiv.org/abs/2607.22334) | Tem | Farklı tokenizer'lar arasında OPD | Teacher farklı aileden olursa |
+| [OLIVE 2609.36246](https://arxiv.org/abs/2609.36246) | Eyl | Teacher, student'ın bıraktığı durumdan devam ediyor; log-olasılık gerekmiyor | **API ile kullanılan large model için OPD alternatifi; handoff kayıtlarımız zaten bu yapıda** |
+| [BPM 2607.22334](https://arxiv.org/abs/2607.22334) | Tem | Farklı tokenizer'lar arasında OPD | Large model farklı aileden olursa |
 | [AMD 2608.07169](https://arxiv.org/abs/2608.07169) | Ağu | Eğitimsiz, hiyerarşik teacher belleği; en çok 4B student'lar kazanıyor | Ağırlıklara dokunmadan bilgi aktarımı |
 
 ### Handoff ve yönlendirme
@@ -143,7 +143,7 @@
 | Çalışma | Tarih | Bulgu | Bizim için ders |
 |---|---|---|---|
 | [TSDS 2607.26865](https://arxiv.org/abs/2607.26865) | Tem | Learn-Then-Test ile kalibre edilen handoff eşiği; maliyet garantisi | Eşik calibration'ı için ilkeli bir yöntem |
-| [Replay Gap 2608.08239](https://arxiv.org/abs/2608.08239) | Ağu | Model değişince sonraki eylemlerin %61–94'ü değişiyor | Handoff'u replay ile değil, live fork'larla değerlendir. Teacher'a yeni bir budget ver |
+| [Replay Gap 2608.08239](https://arxiv.org/abs/2608.08239) | Ağu | Model değişince sonraki eylemlerin %61–94'ü değişiyor | Handoff'u replay ile değil, live fork'larla değerlendir. Large model'e yeni bir budget ver |
 | [KL-PBD 2610.15128](https://arxiv.org/abs/2610.15128) | Eki | Uzman etiketi yalnızca hand off edilen vakalarda var, bu bir seçim yanlılığı yaratıyor | Handoff verisindeki yanlılığı düzelt |
 | [Agentic Routing Flywheel 2607.11399](https://arxiv.org/abs/2607.11399) | Tem | Her karar (sorgu, durum, seçim, iz, sonuç, maliyet) kaydı olarak tutuluyor | Experience log şeması |
 
@@ -154,8 +154,8 @@
 | [Continual Experience 2606.04703](https://arxiv.org/abs/2606.04703) | Haz | Tekrarlı turlarda mevcut yöntemler giderek çöküyor | Tekrarlı yeniden eğitim turlarında en büyük risk |
 | [ReSAIL 2609.39306](https://arxiv.org/abs/2609.39306) | Eyl | Bilgilendirici adımları seçmek + dondurulmuş teacher'a doğru düzenlileştirme | Çökmeye karşı tarif |
 | [Denser ≠ Better 2607.01763](https://arxiv.org/abs/2607.01763) | Tem | Yoğun self-distillation daha çok unutturuyor; GRPO koruyor | Her turda RL bileşeni kalmalı |
-| [BCIT 2608.26730](https://arxiv.org/abs/2608.26730) | Ağu | Geçmiş güncelleme kanıtlarının yeniden kullanımını gate'lemek | Yeniden eğitilen policy için promotion gate |
-| [UpgradeBench 2608.20918](https://arxiv.org/abs/2608.20918) | Ağu | Bir Text-to-SQL uzmanı modelin ömrü, temel modelin bir sürüm aralığından kısa | Ham girdileri sakla; teacher yeniden etiketleyebilsin |
+| [BCIT 2608.26730](https://arxiv.org/abs/2608.26730) | Ağu | Geçmiş güncelleme kanıtlarının yeniden kullanımını gate'lemek | Yeniden eğitilen small model için promotion gate |
+| [UpgradeBench 2608.20918](https://arxiv.org/abs/2608.20918) | Ağu | Bir Text-to-SQL uzmanı modelin ömrü, temel modelin bir sürüm aralığından kısa | Ham girdileri sakla; large model yeniden etiketleyebilsin |
 | [OVCSD 2607.27937](https://arxiv.org/abs/2607.27937) / [HINT-SD 2605.17873](https://arxiv.org/abs/2605.17873) | Tem / May | Teacher, student'ın durumundan devam ediyor; kayıp yalnızca hatanın olduğu yerlere uygulanıyor | Handoff vakasını eğitim verisine çevirme şablonu |
 | [MFC 2609.13997](https://arxiv.org/abs/2609.13997) | Eyl | 128 çözülemeyen problem ≈ 2.000 problemle GRPO | Zor vakalar için müfredat |
 
@@ -169,15 +169,15 @@ Bu tablo karşılaştırılabilir sistemlerden yapılmış bir çıkarımdır, �
 | SFT + tool'lu RL, tek geçiş | 62–68 (dev) |
 | + en fazla 8 candidate, sonuç kümelemesi | 66–71 (dev); test ~70–74 |
 | Kapalı 4B sistemlerin tavanı | 76+ (test) |
-| Teacher'a handoff | +2–5, ancak bu durumda sistem genel sıralamaya girer, tek model sıralamasına değil |
+| Large model'e handoff | +2–5, ancak bu durumda sistem genel sıralamaya girer, tek model sıralamasına değil |
 | Mini-Interact Reward* | ~10–20 (en iyi modeller ~30) |
 
 ## 8. Veri setleri
 
 | Veri seti | Motor | Boyut | Kullanım |
 |---|---|---|---|
-| BIRD train / dev | SQLite | ~9.4k / 1.534 soru, 95 veritabanı, toplam 33.4 GB | Policy'nin eğitimi ve ana değerlendirme. Daha temiz dev bölümü: `bird_sql_dev_20251106` |
-| SynSQL-2.5M (OmniSQL, [2503.02240](https://arxiv.org/abs/2503.02240)) | SQLite | 2.544.390 örnek, 16.583 veritabanı, Apache 2.0 | World model'in eğitimi: SQL'ler çalıştırılıp etiket üretilir. Policy için ek SFT verisi |
+| BIRD train / dev | SQLite | ~9.4k / 1.534 soru, 95 veritabanı, toplam 33.4 GB | Small model'in eğitimi ve ana değerlendirme. Daha temiz dev bölümü: `bird_sql_dev_20251106` |
+| SynSQL-2.5M (OmniSQL, [2503.02240](https://arxiv.org/abs/2503.02240)) | SQLite | 2.544.390 örnek, 16.583 veritabanı, Apache 2.0 | World model'in eğitimi: SQL'ler çalıştırılıp etiket üretilir. Small model için ek SFT verisi |
 | Mini-Interact / BIRD-Interact ([2510.05318](https://arxiv.org/abs/2510.05318)) | SQLite / Postgres | 300 görev (Mini) | Budget'lı değerlendirme. Bir kısmı CRUD görevi; salt okunur kurulumda SELECT alt kümesi kullanılır |
 | BIRD-Critic-SQLite | SQLite | 500 görev | Onarım ve handoff |
 | LiveSQLBench Base-Lite-SQLite | SQLite | | Kirlenmemiş değerlendirme (SELECT alt kümesi) |
@@ -204,18 +204,18 @@ Aşağıdaki değerler ilgili makalelerden alındı. Başlangıç noktasıdır, 
 - Tool argümanları doğrulanır ve kaydedilir. Küçük modellerde kayıpların %36'sı tool argümanı hatası (2609.21341).
 - Düşünme modu kapalı ya da kısa olmalı (Solving w/o Stopping).
 
-**Policy eğitimi**
+**Small model eğitimi**
 1. **SFT** (HarnessSQL):
-   - Veri: harness içinde toplanmış, doğrulanmış teacher izleri. Başarılı izlerin içindeki başarısız tool call'lar silinmez.
+   - Veri: harness içinde toplanmış, doğrulanmış large model izleri. Başarılı izlerin içindeki başarısız tool call'lar silinmez.
    - Kayıp yolun tamamı üzerinde hesaplanır, observation'lar maskelenir.
    - 3 epoch, lr 1e-5 (cosine), etkin batch 16.
-   - **Seçilen teacher: Qwen3.6-27B, 4-bit** (~16–17 GB; 48 GB'a policy ile birlikte sığar). Gerekçe: HarnessSQL'de bu teacher'la 23.0, Qwen3.5-9B ile 7.4; DeepEye-SQL bununla BIRD test 78.42; judge olarak Opus düzeyinde (κ 0.72). Kullanmadan önce bizim harness'ımızdaki başarısı ölçülür.
+   - **Seçilen large model: Qwen3.6-27B, 4-bit** (~16–17 GB; 48 GB'a small model ile birlikte sığar). Gerekçe: HarnessSQL'de bu large model'le 23.0, Qwen3.5-9B ile 7.4; DeepEye-SQL bununla BIRD test 78.42; judge olarak Opus düzeyinde (κ 0.72). Kullanmadan önce bizim harness'ımızdaki başarısı ölçülür.
 2. **On-policy distillation** (Guided-OPD, TCOD):
-   - Teacher müdahalesi kosinüsle sıfıra iner.
-   - Student turlarında ters KL, teacher turlarında ileri KL.
+   - Large model müdahalesi kosinüsle sıfıra iner.
+   - Small model turlarında ters KL, large model turlarında ileri KL.
    - İlk yanlış tool call'dan sonrası kesilmez, ağırlığı düşürülür (SOD).
    - Top-K logit kullanılıyorsa tool call'u başlatan token'lar geri eklenir (Qwen3.5'e özgü sorun).
-   - Qwen3.6 ile Qwen3.5'in tokenizer'ı aynı mı, önce doğrulanır. Değilse OLIVE kullanılır: teacher, student'ın kaldığı yerden devam eder, log-olasılık gerekmez.
+   - Qwen3.6 ile Qwen3.5'in tokenizer'ı aynı mı, önce doğrulanır. Değilse OLIVE kullanılır: large model, small model'in kaldığı yerden devam eder, log-olasılık gerekmez.
    - Doğrulama skoru durağanlaşınca RL'e geçilir (Sequential Beats Joint).
 3. **RL** (HarnessSQL, ReToolSQL):
    - DAPO, asimetrik clip [0.20, 0.28], lr 1e-6.
@@ -223,11 +223,11 @@ Aşağıdaki değerler ilgili makalelerden alındı. Başlangıç noktasıdır, 
    - KL kapalı ya da azalarak sıfıra iner (ReToolSQL: 0.005 → 0.001 → 0).
    - **Ana reward:** REX (sağlam sonuç eşleşmesi) ile ikili çalıştırma doğruluğu, artı küçük bir format terimi. Yardımcı terimler (şema, tur) yalnızca cevap doğruysa verilir (TRUST-SQL).
    - **İsteğe bağlı calibration reward:** sözel güven, sonuca göre ödüllendirilir (2610.18614).
-   - Teacher yalnızca tüm denemeleri başarısız olan gruplarda devreye girer ve zamanla geri çekilir (GATS, RSTG).
+   - Large model yalnızca tüm denemeleri başarısız olan gruplarda devreye girer ve zamanla geri çekilir (GATS, RSTG).
 
 **Handoff ve offline döngü**
-- Teacher, agent'ın kaldığı yerden yeni bir budget'la devam eder (OLIVE). Yalnızca çalıştırmayla doğrulanan devamlar eğitime girer, kayıp hatanın olduğu adımlara uygulanır (OVCSD, HINT-SD).
-- Her turda önceki verilerle karıştırılır. Dondurulmuş önceki policy'ye doğru düzenlileştirilir (ReSAIL). RL bileşeni korunur (Denser ≠ Better).
-- Yeni policy, en az 3 seed'le ve tutma testleriyle promotion gate'ten geçer (BCIT, Below the Noise Floor).
-- Ham girdiler saklanır. Temel model yükseltildiğinde teacher yeniden etiketleyebilir (UpgradeBench).
+- Large model, small model'in kaldığı yerden yeni bir budget'la devam eder (OLIVE). Yalnızca çalıştırmayla doğrulanan devamlar eğitime girer, kayıp hatanın olduğu adımlara uygulanır (OVCSD, HINT-SD).
+- Her turda önceki verilerle karıştırılır. Dondurulmuş önceki small model'e doğru düzenlileştirilir (ReSAIL). RL bileşeni korunur (Denser ≠ Better).
+- Yeni small model, en az 3 seed'le ve tutma testleriyle promotion gate'ten geçer (BCIT, Below the Noise Floor).
+- Ham girdiler saklanır. Temel model yükseltildiğinde large model yeniden etiketleyebilir (UpgradeBench).
 - Experience log şeması (Agentic Routing Flywheel'den): soru, split, konuşmanın tamamı (her tool call ve observation), cevap, label, doğru mu, handoff nedeni, model adları. Eğitime yalnızca train split'i girer.

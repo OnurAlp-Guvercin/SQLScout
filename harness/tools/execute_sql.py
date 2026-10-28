@@ -9,6 +9,8 @@ from db.sqlite_schema import SQL_WORDS, show_name
 from harness.tools.search_values import similar_columns
 
 EMPTY_HINT = "If the query filters on a text value, check how that value is written with search_values."
+TRIMMED_HINT = ("You do not need to see every row: if this query answers the question, submit it as it is; the answer "
+                "keeps all rows.")
 TIMEOUT_HINT = (f"Exploration queries may run {config.EXPLORE_TIMEOUT_SECONDS} seconds. If this query answers the "
                 f"question, you can submit it: a submitted query may run {config.ANSWER_TIMEOUT_SECONDS} seconds.")
 
@@ -149,9 +151,10 @@ def has_rows(result):
 
 
 def format_result(result, hint=True):
-    """Gerçek sonucu metne çevirir: sütunlar, satır sayısı ve kırpılmış satırlar ya da hata. Sonuç boşsa ya da
-    yalnızca 0/NULL ise agent'a değerin yazılışını kontrol etmesi hatırlatılır (hint). Tool'u olmayan teacher
-    kontrolü (adım 7) sonucu hatırlatmasız görür."""
+    """Gerçek sonucu metne çevirir: sütunlar, satır sayısı ve kırpılmış satırlar ya da hata. Agent'a notlar (hint):
+    sonuç boşsa ya da yalnızca 0/NULL ise değerin yazılışını kontrol etmesi; satırlar kırpıldıysa hepsini görmeden
+    submit edebileceği (yoksa satırları sayfa sayfa görmeye çalışıp budget'ı bitirebilir). Large model kontrolü (adım 7)
+    sonucu notsuz görür."""
     if not result["ok"]:
         return f"Error: {result['error']}"
     lines = [f"Columns: {', '.join(result['columns'])}"]
@@ -165,6 +168,8 @@ def format_result(result, hint=True):
         lines.append(f"{result['row_count']} rows:")
     for row in rows:
         lines.append(" | ".join(row))
+    if hint and len(rows) < result["row_count"]:
+        lines.append(TRIMMED_HINT)
     if hint and not has_rows(result):
         lines.append("The result is only 0 or NULL. " + EMPTY_HINT)
     return "\n".join(lines)

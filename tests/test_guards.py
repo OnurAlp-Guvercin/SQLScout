@@ -59,24 +59,24 @@ def test_only_first_of_many_calls_is_taken():
     assert guards.read_tool_call(reply, TOOLS)["args"] == {"query": "Boston"}
 
 
-def past(*steps, teacher=False):
-    return SimpleNamespace(steps=list(steps), teacher=teacher)
+def past(*steps, large_model=False):
+    return SimpleNamespace(steps=list(steps), large_model=large_model)
 
 
 def test_repeat_rules():
-    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1"}, "result": "Columns: 1", "by": "agent"}
+    old = {"tool": "execute_sql", "args": {"sql": "SELECT 1"}, "result": "Columns: 1", "by": "small_model"}
     same_sql = {"tool": "execute_sql", "args": {"sql": " SELECT   1 "}}
     earlier = guards.earlier_calls(same_sql, past(old))
     assert earlier == [old]
     assert guards.repeat_note(earlier).endswith("Its result was:\nColumns: 1")
     other_sql = {"tool": "execute_sql", "args": {"sql": "SELECT 2"}}
     assert guards.earlier_calls(other_sql, past(old)) == []
-    assert guards.earlier_calls(same_sql, past(old, teacher=True)) == []  # teacher'a agent'ın çağrısı tekrar sayılmaz
-    search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "...", "by": "agent"}
+    assert guards.earlier_calls(same_sql, past(old, large_model=True)) == []  # large model'e small model'in çağrısı tekrar sayılmaz
+    search = {"tool": "search_values", "args": {"query": "Boston"}, "result": "...", "by": "small_model"}
     assert guards.earlier_calls(dict(search), past(search, search)) == [search, search]  # tekrarlar sayılır
-    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Final check failed: ...", "by": "agent"}
+    submit = {"tool": "submit", "args": {"sql": "SELECT 1"}, "result": "Final check failed: ...", "by": "small_model"}
     assert guards.earlier_calls(dict(submit), past(submit)) == []  # submit hiç tekrar sayılmaz (final check sınırlar)
-    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ...", "by": "agent"}  # reddedilen çağrının argument'ı yok
+    rejected = {"tool": "execute_sql", "args": {}, "result": "Rejected: ...", "by": "small_model"}  # reddedilen çağrının argument'ı yok
     assert guards.earlier_calls(other_sql, past(rejected)) == []
     broken = {"tool": "execute_sql", "args": {}, "error": "Rejected: ..."}  # ör. bozuk JSON, önceden çalışmış SQL var
     assert guards.earlier_calls(broken, past(old)) == []
@@ -96,13 +96,13 @@ def test_oldest_observations_are_shortened_first(monkeypatch):
         messages.append({"role": "assistant", "content": "", "tool_calls": [
             {"id": "c", "type": "function", "function": {"name": "execute_sql", "arguments": "{}"}}]})
         messages.append({"role": "tool", "tool_call_id": "c", "content": observation})
-    context = SimpleNamespace(messages=messages)
     total = guards.conversation_tokens(messages)
     monkeypatch.setattr(config, "CONVERSATION_MAX_TOKENS", total - 1)
-    guards.compress(context)
-    assert messages[3]["content"] == "[Old result, shortened] Columns: id | 150 rows (first 20 shown)"
-    assert messages[5]["content"] == observation  # sınırın altına inince durdu
-    assert messages[1]["content"] == "context " * 50  # adım 1'in bağlamı kısaltılmaz
+    sent = guards.compress(messages)
+    assert sent[3]["content"] == "[Old result, shortened] Columns: id | 150 rows (first 20 shown)"
+    assert sent[5]["content"] == observation  # sınırın altına inince durdu
+    assert sent[1]["content"] == "context " * 50  # adım 1'in bağlamı kısaltılmaz
+    assert messages[3]["content"] == observation  # konuşmanın kendisi (experience log) tam kalır
 
 
 def test_code_fences_and_comments_are_removed_from_sql():
@@ -118,3 +118,8 @@ def test_code_fences_and_comments_are_removed_from_sql():
 def test_block_comments_and_text_after_the_fence_are_removed():
     assert guards.clean_sql("/* count items */\nSELECT COUNT(*) FROM items") == "SELECT COUNT(*) FROM items"
     assert guards.clean_sql("```sql\nSELECT 1\n```\nThis counts rows.") == "SELECT 1"
+
+
+def test_arguments_that_cannot_be_encoded_are_rejected():
+    step = guards.read_tool_call(reply_with("execute_sql", '{"sql": "SELECT \'\\ud800\'"}'), TOOLS)
+    assert step["error"] == "Rejected: the arguments of 'execute_sql' are not a valid JSON object."

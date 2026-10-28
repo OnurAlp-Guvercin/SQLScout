@@ -7,16 +7,16 @@ import threading
 from pathlib import Path
 
 import config
-from agent import llm
+from agent import llm, prompts
 from db import sqlite_schema
 from db.sqlite_schema import show_name
 
 profiles_lock = threading.Lock()
 
 
-def build_context(question, evidence, db_path):
-    """Agent'ın ilk göreceği metin (string): tablolar, foreign key'ler, evidence, soru (en sonda).
-    BIRD dev'de en büyüğü ~12K token; bağlam sınırına yaklaşmaz."""
+def build_context(question, evidence, db_path, examples=()):
+    """Agent'ın ilk göreceği metin (string): tablolar, foreign key'ler, varsa memory'den benzer sorular (examples),
+    evidence, soru (en sonda). BIRD dev'de en büyüğü ~12K token; bağlam sınırına yaklaşmaz."""
     tables = sqlite_schema.schema(db_path)
     profiles = load_profiles(db_path, tables)
     descriptions = sqlite_schema.descriptions(db_path)
@@ -30,6 +30,13 @@ def build_context(question, evidence, db_path):
                                 f"{show_name(fk['ref_table'])}.{show_name(fk['ref_column'])}")
     if foreign_keys:
         lines += ["Foreign keys:"] + foreign_keys + [""]
+    if examples:
+        lines += [prompts.MEMORY_NOTE, ""]
+        for number, example in enumerate(examples, start=1):
+            lines.append(f"{number}. Question: {example['question']}")
+            if example["evidence"]:
+                lines.append(f"   Evidence: {example['evidence']}")
+            lines += [f"   SQL: {example['sql']}", ""]
     if evidence:
         lines.append(f"Evidence: {evidence}")
     lines.append(f"Question: {question}")
@@ -61,13 +68,23 @@ def column_line(column, is_primary_key, description, row_count):
     # Sayısal sütunlarda yalnızca aralık; metin sütunlarında model yazılışı görsün diye değerler (sayıları değil).
     if column["min"] is not None:
         parts.append(f"range: {column['min']} to {column['max']}")
-    elif column["top_values"]:
+    elif column["top_values"] and not is_long_text(column):
         values = column["top_values"]
         if not column["all_values_shown"] and is_near_unique(column, row_count):
             values = values[:config.PROFILE_UNIQUE_VALUES]
         label = "all values: " if column["all_values_shown"] else "e.g. "
         parts.append(label + ", ".join(show_value(value) for value, _ in values))
     return "; ".join(parts)
+
+
+def is_long_text(column):
+    """Değerlerinin çoğu PROFILE_VALUE_MAX_CHARS'tan uzun serbest metin mi (ör. yorumlar, kart yazıları)? Böyle
+    değerlerin kırpılmış örnekleri yazılış öğretmez; gösterilmez."""
+    long_values = 0
+    for value, _ in column["top_values"]:
+        if isinstance(value, str) and len(value) > config.PROFILE_VALUE_MAX_CHARS:
+            long_values += 1
+    return long_values > len(column["top_values"]) / 2
 
 
 def is_near_unique(column, row_count):

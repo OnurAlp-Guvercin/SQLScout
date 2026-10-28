@@ -84,7 +84,20 @@ def test_too_many_rows_is_an_error(db, monkeypatch):
     monkeypatch.setattr(config, "MAX_TOTAL_ROWS", 100)
     result = execute(db, "SELECT a.id, b.id FROM items a, items b")  # JOIN koşulu unutulmuş: 22500 satır
     assert not result["ok"]
-    assert result["error"] == "Too many rows: the result has more than 100 rows. Add a join condition or a filter."
+    assert result["error"] == ("Too many rows: the result has more than 100 different rows. "
+                               "Add a join condition or a filter.")
+
+
+def test_repeated_rows_do_not_count_toward_the_row_limit(db, monkeypatch):
+    """BIRD satır kümesine bakar: aynı satırın binlerce tekrarı tek satırdır, sonuç geçerlidir."""
+    monkeypatch.setattr(config, "MAX_TOTAL_ROWS", 100)
+    result = execute(db, "SELECT a.city FROM items a, items b")  # 22500 satır, 3 farklı satır
+    assert result["ok"] and result["row_count"] == 22500
+
+
+def test_unencodable_sql_is_an_error_not_a_crash(db):
+    result = execute(db, "SELECT '\ud800'")
+    assert not result["ok"]
 
 
 def test_explain_rejects_a_double_quoted_missing_column(db):

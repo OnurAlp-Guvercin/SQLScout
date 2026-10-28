@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import config
+from db import sqlite_schema
 from harness import prepare
 
 QUESTION = "Which city has the most returned items?"
@@ -59,3 +60,17 @@ def test_near_unique_text_columns_show_fewer_samples(bird_db, monkeypatch):
     context = prepare.build_context(QUESTION, EVIDENCE, bird_db)
     assert "- name TEXT; store name. • name on the door; e.g. 'Store 0'\n" in context  # 3 satır, 3 farklı değer
     assert "- city TEXT; Shop city; e.g. 'Boston', 'Chicago'\n" in context  # 150 satır, 3 farklı değer
+
+
+def test_long_free_text_shows_no_samples(bird_db, monkeypatch):
+    """Değerlerinin çoğu uzun olan sütun (ör. yorum) kırpılmış örnek göstermez: yazılış öğretmez, yalnızca yer kaplar."""
+    monkeypatch.setattr(config, "PROFILE_VALUE_MAX_CHARS", 5)  # "Boston", "Chicago", "Los Angeles" artık uzun metin
+    context = prepare.build_context(QUESTION, EVIDENCE, bird_db)
+    assert "- city TEXT; Shop city\n" in context
+    assert "; all values: " in context.split("- status TEXT")[1].splitlines()[0]  # değerleri çoğu kısa: örnekler kalır
+
+
+def test_repeated_value_description_is_written_once():
+    row = {"original_column_name": "text", "column_name": "", "column_description": "The rules text of the card.",
+           "value_description": "The rules text of the card"}
+    assert sqlite_schema.describe_row(row) == "The rules text of the card"

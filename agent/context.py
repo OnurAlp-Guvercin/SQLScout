@@ -21,26 +21,26 @@ class Context:
 
     # Konuşma: modelin gördüğü mesajlar ve sonuç dosyasına yazılan adımlar
     messages: list = field(default_factory=list)
-    agent_messages: list = None  # handoff'tan sonra: agent'ın konuşması (teacher sıfırdan başlar; experience log)
+    small_model_messages: list = None  # handoff'tan sonra: small model'in konuşması (large model sıfırdan başlar; experience log)
     steps: list = field(default_factory=list)
 
     # Kararları yöneten durum
-    teacher: bool = False  # handoff'tan sonra True: tool call'ları teacher yapar
-    calls: int = 0  # soru boyunca toplam tool call (agent + teacher); sonuç dosyasına yazılır
-    calls_left: int = 0  # bu budget'ta kalan tool call hakkı; teacher devralınca yeniden dolar
+    large_model: bool = False  # handoff'tan sonra True: tool call'ları large model yapar
+    calls: int = 0  # soru boyunca toplam tool call (small model + large model); sonuç dosyasına yazılır
+    calls_left: int = 0  # bu budget'ta kalan tool call hakkı; large model devralınca yeniden dolar
     cache: dict = field(default_factory=dict)  # execute_sql.sql_key(sql) → gerçek sonuç (adım 5)
     stuck: bool = False  # son tool call reddedildi ya da tekrardı: sıradaki adım örneklenir (agent/loop.py next_step)
     final_check_fails: int = 0  # final check 2 kez geçmezse handoff
-    wasted_calls: int = 0  # okunamayan, tekrarlanan ya da reddedilen çağrılar; agent'ın ilk 4 çağrısında 2 olursa handoff
+    wasted_in_a_row: int = 0  # arka arkaya boşa giden (okunamayan, tekrarlanan, reddedilen) çağrılar; 5 olursa handoff
     last_ok_sql: str = None  # en son hatasız ve dolu çalışan SQL; ilerleme sınırı (adım 2) buna bakar
     submitted_sql: str = None  # submit edilen ve hatasız çalışan son SQL; fallback answer bu (düşük güven)
-    submitted_by: str = None  # submitted_sql'i kim submit etti: agent ya da teacher
-    handoff_reason: str = None  # agent'ın döngüsü neden durdu (teacher'a geçiş nedeni)
-    teacher_stop_reason: str = None  # teacher'ın döngüsü neden durdu (cevap kabul edilmeden)
+    submitted_by: str = None  # submitted_sql'i kim submit etti: small model ya da large model
+    handoff_reason: str = None  # small model'in döngüsü neden durdu (large model'e geçiş nedeni)
+    large_model_stop_reason: str = None  # large model'in döngüsü neden durdu (cevap kabul edilmeden)
 
-    # Teacher (adım 7, 8): sonuç dosyasına yazılır
-    teacher_check: dict = None  # agent'ın submit ettiği SQL ve teacher'ın kararı: {"sql", "approved", "reason"}
-    teacher_error: str = None  # teacher'ın API'si birkaç denemeye rağmen cevap vermediyse hata; cevap yine de döner
+    # Large model (adım 7, 8): sonuç dosyasına yazılır
+    large_model_checks: list = field(default_factory=list)  # small model'in her submit'ine large model'in kararı: {"sql", "approved", "reason"}
+    large_model_error: str = None  # large model'in API'si birkaç denemeye rağmen cevap vermediyse hata; cevap yine de döner
 
     # Ölçüm sayaçları (new_stats)
     stats: dict = field(default_factory=new_stats)
@@ -56,18 +56,18 @@ class Context:
             self.messages.append({"role": "assistant", "content": step["text"]})
             self.messages.append({"role": "user", "content": result})
         self.steps.append({"tool": step["tool"], "args": step["args"], "text": step["text"], "result": result,
-                           "by": "teacher" if self.teacher else "agent"})
+                           "by": "large_model" if self.large_model else "small_model"})
 
     def count_usage(self, reply):
         """Bir model isteğinin token'larını ve maliyetini sayaçlara ekler."""
         for name in ("prompt_tokens", "completion_tokens", "cost"):
             self.stats[name] += reply.get(name) or 0
 
-    def answer(self, sql, label, answered_by="agent", error_message=None):
+    def answer(self, sql, label, answered_by="small_model", error_message=None):
         """Sorunun sonucu: cevap, label ve sonuç dosyasına yazılacak her şey. error_message yalnızca cevap yoksa
         (no_answer) dolu: neden cevap olmadığı."""
         return {"sql": sql, "label": label, "answered_by": answered_by, "error_message": error_message,
                 "tool_calls": self.calls, **self.stats, "cost": round(self.stats["cost"], 6),
-                "handoff_reason": self.handoff_reason, "teacher_stop_reason": self.teacher_stop_reason,
-                "teacher_check": self.teacher_check,
-                "teacher_error": self.teacher_error, "steps": self.steps}
+                "handoff_reason": self.handoff_reason, "large_model_stop_reason": self.large_model_stop_reason,
+                "large_model_checks": self.large_model_checks,
+                "large_model_error": self.large_model_error, "steps": self.steps}

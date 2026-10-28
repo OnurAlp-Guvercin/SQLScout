@@ -4,6 +4,9 @@
 # Büyük veri setleri ve hazırlanmış dosyalar (BIRD ~33 GB); README'de nasıl indirileceği yazıyor
 data/
 
+# Yerel model dosyaları (small model, embedding modeli; ~2.7 GB); README'de nasıl indirileceği yazıyor
+models/
+
 # Çalışma sırasında biriken kayıtlar (experience log)
 experience/
 

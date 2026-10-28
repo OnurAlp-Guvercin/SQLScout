@@ -2,18 +2,37 @@
 
 import sqlite3
 
+import numpy as np
 import pytest
 
 import config
 from agent import llm, prompts
+from harness import memory
 from tests.fakes import text_reply
 
 
 @pytest.fixture(autouse=True)
 def files_in_tmp(tmp_path, monkeypatch):
-    """Testler gerçek data/prepared/ ve experience/log.jsonl dosyalarına yazmasın."""
+    """Testler gerçek data/prepared/, experience/log.jsonl ve experience/memory.sqlite dosyalarına yazmasın."""
     monkeypatch.setattr(config, "PREPARED_DIR", tmp_path / "prepared")
     monkeypatch.setattr(config, "EXPERIENCE_LOG", tmp_path / "log.jsonl")
+    monkeypatch.setattr(config, "MEMORY_DB", tmp_path / "memory.sqlite")
+
+
+@pytest.fixture(autouse=True)
+def fake_embedding(monkeypatch):
+    """Embedding modeli yüklenmez: her metin, içindeki kelimelerin sayıldığı normalize bir vektör olur. Aynı kelimeleri
+    paylaşan metinler birbirine benzer."""
+    def embed(texts):
+        vectors = []
+        for text in texts:
+            vector = np.zeros(64, dtype=np.float32)
+            for word in text.lower().replace("?", "").split():
+                vector[sum(map(ord, word)) % 64] += 1
+            vectors.append(vector / np.linalg.norm(vector))
+        return np.array(vectors)
+
+    monkeypatch.setattr(memory, "embed", embed)
 
 
 @pytest.fixture
@@ -37,8 +56,8 @@ def db(tmp_path):
 
 @pytest.fixture
 def fake_model(monkeypatch):
-    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder. Teacher kontrolü (adım 7) sıraya
-    girmez: sahte teacher her cevabı onaylar; onaylamamayı deneyen testler submit.teacher_review'u değiştirir."""
+    """Modelin sırayla vereceği cevapları ayarlar ve modele giden mesajları kaydeder. Large model kontrolü (adım 7) sıraya
+    girmez: sahte large model her cevabı onaylar; onaylamamayı deneyen testler submit.large_model_review'u değiştirir."""
     replies, seen = [], []
 
     def fake_chat(messages, tools=None, temperature=None, model=None):

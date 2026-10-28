@@ -137,3 +137,9 @@ def test_double_quoted_text_with_a_dot_is_not_read_as_table_and_column(db):
 def test_sql_key_keeps_spaces_inside_text_values():
     assert execute_sql.sql_key("SELECT  1 ;") == execute_sql.sql_key("SELECT 1")
     assert execute_sql.sql_key("SELECT 1 WHERE x = 'A B'") != execute_sql.sql_key("SELECT 1 WHERE x = 'A  B'")
+
+
+def test_large_model_check_sees_a_trimmed_result_without_the_agent_note(db):
+    result = execute_sql.run_sql("SELECT id FROM items", Context("q", "", db))
+    assert execute_sql.format_result(result).endswith(execute_sql.TRIMMED_HINT)
+    assert execute_sql.TRIMMED_HINT not in execute_sql.format_result(result, hint=False)

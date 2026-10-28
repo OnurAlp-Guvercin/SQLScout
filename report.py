@@ -23,21 +23,23 @@ def summary(rows, wall_seconds):
             if step["tool"] == "search_values":
                 searches += 1
     print(f"Search çağrısı: {searches}")
-    teacher = sum(row.get("answered_by") == "teacher" for row in rows)
-    handoffs = sum(bool(row.get("handoff_reason")) for row in rows)
-    print(f"Handoff noktası: {handoffs} (teacher'ın cevabı: {teacher})")
+    large = sum(row.get("answered_by") == "large_model" for row in rows)
+    handoffs = 0  # large model gerçekten devraldı mı (handoff kapalıyken handoff_reason yalnızca durma nedenidir)
+    for row in rows:
+        if any(step["by"] == "large_model" for step in row.get("steps", [])):
+            handoffs += 1
+    print(f"Handoff: {handoffs} (large model'in cevabı: {large})")
     approved, rejected = [], []
     for row in rows:
-        check = row.get("teacher_check")
-        if check:
+        for check in row.get("large_model_checks", []):
             (approved if check["approved"] else rejected).append(check)
-    print(f"Teacher kontrolü: {len(approved)} onay ({sum(check['correct'] for check in approved)} doğru), "
-          f"{len(rejected)} ret ({sum(check['correct'] for check in rejected)} aslında doğru)")
+    print(f"Large model kontrolü: {len(approved)} onay ({sum(bool(check.get('correct')) for check in approved)} doğru), "
+          f"{len(rejected)} ret ({sum(bool(check.get('correct')) for check in rejected)} aslında doğru)")
     for row in rows:
         if "error" in row:
             print(f"  soru {row['question_id']} hata: {row['error'][:200]}")
-        if row.get("teacher_error"):
-            print(f"  soru {row['question_id']} teacher'a ulaşılamadı: {row['teacher_error'][:200]}")
+        if row.get("large_model_error"):
+            print(f"  soru {row['question_id']} large model'e ulaşılamadı: {row['large_model_error'][:200]}")
         if "gold_error" in row:
             print(f"  soru {row['question_id']} gold hatası: {row['gold_error']}")
 

@@ -9,8 +9,13 @@ spaces, special characters or SQL keywords are in backticks (e.g. `order`).
 - The user may spell a value differently from the database: a typo, other upper/lower case, an abbreviation or \
 another word for it. Write values exactly as the database writes them (value samples, evidence or search results), \
 not as the question writes them.
-- Follow the evidence: it explains how words in the question map to the database.
+- Follow the evidence exactly: its mappings and formulas define the answer (e.g. "difference = SUBTRACT(A, B)" \
+means A - B, even if the result is negative).
 - Select only what the question asks for, in the order it asks."""
+
+# Memory (adım 1): bağlama eklenen benzer, daha önce çözülmüş soruların başlığı.
+MEMORY_NOTE = ("Similar questions answered before. They may come from another database, so their tables can differ "
+               "from this schema. Use them only if they help.")
 
 # Base: tool'suz tek SQL (baseline.py). Agentic sistem bununla karşılaştırılır.
 WRITE_SQL = f"""You are an expert SQLite analyst. You are given a database schema with column descriptions \
@@ -32,9 +37,12 @@ holds or how two tables are linked).
 - `submit` gives your final answer: when a query you ran answers the question, submit exactly that query. It must \
 return only what the question asks for: leave out helper columns you added only while exploring.
 
+Answer the question as it is written. Explore only to find how values are written and how tables are linked; do not \
+change what the question asks for because of what you see in the data.
+
 {SQL_RULES}"""
 
-# Teacher kontrolü (adım 7): her cevap kabul edilmeden önce teacher bağlamı, SQL'i ve sonucu görüp doğru mu diye bakar.
+# Large model kontrolü (adım 7): her cevap kabul edilmeden önce large model bağlamı, SQL'i ve sonucu görüp doğru mu diye bakar.
 CHECK_ANSWER = f"""You are an expert SQLite analyst. You are given a database schema with column descriptions and \
 value samples, sometimes evidence, a question, a SQL query written for it and its result. Decide whether the query \
 answers the question correctly. Check two things:
@@ -42,14 +50,17 @@ answers the question correctly. Check two things:
 for. A column added only to identify, explain or check the answer (an id or a name the question does not ask for, the \
 value used for ordering, a count) makes the answer wrong, even if the asked value is also in the result. If the \
 question names the field to return (e.g. "indicate the id"), only that field is asked for.
-2. Rows: the right tables, joins, conditions and values, so that the result holds exactly what the question asks for.
+2. Rows: the right tables, joins, conditions and values, so that the result holds exactly what the question asks \
+for, and the query follows the evidence's mappings and formulas exactly. Read the question and the evidence \
+literally: a query that adds something they do not state (e.g. another column for the same idea, COUNT(DISTINCT ...) \
+instead of COUNT(...), a different denominator, extra grouping or rounding) is wrong, even if it looks more sensible.
 
 {SQL_RULES}
 
 Reply with only a JSON object: first the reason (the columns check, then the rows check), then your decision.
 {{"reason": "<columns: ...; rows: ...>", "correct": <true or false>}}"""
 
-# Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
+# Tool'lar (Qwen'in tool-call biçimi). Small model'e ve large model'e aynı tool'lar sunulur.
 SEARCH_VALUES = {"type": "function", "function": {
     "name": "search_values",
     "description": "Find database values that contain the given text or are spelled like it, with their table and "

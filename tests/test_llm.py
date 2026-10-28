@@ -2,6 +2,7 @@
 
 import io
 import time
+import urllib.error
 import urllib.request
 
 import pytest
@@ -11,24 +12,24 @@ from agent import llm
 
 
 def test_request_body_uses_config_and_disables_thinking(monkeypatch):
-    monkeypatch.setattr(config, "POLICY_PROVIDERS", ["deepinfra", "parasail"])
-    body = llm.request_body([{"role": "user", "content": "hi"}], None, None, config.POLICY_MODEL)
-    assert body["model"] == config.POLICY_MODEL
-    assert body["temperature"] == config.POLICY_TEMPERATURE
-    assert body["top_p"] == config.POLICY_TOP_P
+    monkeypatch.setattr(config, "SMALL_MODEL_PROVIDERS", ["deepinfra", "parasail"])
+    body = llm.request_body([{"role": "user", "content": "hi"}], None, None, config.SMALL_MODEL)
+    assert body["model"] == config.SMALL_MODEL
+    assert body["temperature"] == config.TEMPERATURE
+    assert body["top_p"] == config.TOP_P
     assert body["max_tokens"] == config.MAX_NEW_TOKENS
     assert body["reasoning"] == {"enabled": False}
     assert body["chat_template_kwargs"] == {"enable_thinking": False}
     assert body["provider"] == {"order": ["deepinfra", "parasail"], "allow_fallbacks": False}
     assert "tools" not in body
-    monkeypatch.setattr(config, "TEACHER_PROVIDERS", None)
-    other = llm.request_body([], None, None, config.TEACHER_MODEL)
-    assert other["model"] == config.TEACHER_MODEL and "provider" not in other
+    monkeypatch.setattr(config, "LARGE_MODEL_PROVIDERS", None)
+    other = llm.request_body([], None, None, config.LARGE_MODEL)
+    assert other["model"] == config.LARGE_MODEL and "provider" not in other
 
 
-def test_teacher_goes_to_its_own_address_with_the_key(monkeypatch):
-    monkeypatch.setattr(config, "LLM_URL", "http://127.0.0.1:8080/v1")
-    monkeypatch.setattr(config, "TEACHER_URL", "https://api.example/v1")
+def test_large_model_goes_to_its_own_address_with_the_key(monkeypatch):
+    monkeypatch.setattr(config, "SMALL_MODEL_URL", "http://127.0.0.1:8080/v1")
+    monkeypatch.setattr(config, "LARGE_MODEL_URL", "https://api.example/v1")
     monkeypatch.setattr(llm, "api_key", lambda: "secret")
     sent = []
 
@@ -37,7 +38,7 @@ def test_teacher_goes_to_its_own_address_with_the_key(monkeypatch):
         return {"choices": [{"message": {"content": "ok"}}]}
 
     monkeypatch.setattr(llm, "post", post)
-    llm.chat([], model=config.TEACHER_MODEL)
+    llm.chat([], model=config.LARGE_MODEL)
     llm.chat([])
     assert sent == [("https://api.example/v1/chat/completions", "Bearer secret"),
                     ("http://127.0.0.1:8080/v1/chat/completions", None)]
@@ -45,14 +46,14 @@ def test_teacher_goes_to_its_own_address_with_the_key(monkeypatch):
 
 def test_request_body_passes_given_values():
     tools = [{"type": "function", "function": {"name": "submit"}}]
-    body = llm.request_body([], 0.0, tools, config.POLICY_MODEL)
+    body = llm.request_body([], 0.0, tools, config.SMALL_MODEL)
     assert body["temperature"] == 0.0
     assert body["tools"] == tools
 
 
 def test_local_server_needs_no_provider(monkeypatch):
-    monkeypatch.setattr(config, "POLICY_PROVIDERS", None)
-    assert "provider" not in llm.request_body([], None, None, config.POLICY_MODEL)
+    monkeypatch.setattr(config, "SMALL_MODEL_PROVIDERS", None)
+    assert "provider" not in llm.request_body([], None, None, config.SMALL_MODEL)
 
 
 def test_api_key_is_read_from_env_file(tmp_path, monkeypatch):
@@ -87,6 +88,16 @@ def test_dropped_connection_is_retried(monkeypatch):
     assert len(attempts) == 2
 
 
+
+def test_wrong_key_stops_the_run(monkeypatch):
+    """401/402: her soru aynı hatayı alır; cevaplar kontrolsüz kabul edilmesin diye koşu durur."""
+    def fake_urlopen(request, timeout):
+        raise urllib.error.HTTPError("http://test", 401, "Unauthorized", {}, io.BytesIO(b"no auth"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(SystemExit):
+        llm.post("http://test", {}, {})
+
 def test_count_tokens():
     assert llm.count_tokens("SELECT 1") > 0
     assert llm.count_tokens("SELECT name FROM users") > llm.count_tokens("SELECT 1")
@@ -95,6 +106,6 @@ def test_count_tokens():
 @pytest.mark.skipif(llm.api_key() is None, reason="API key yok (.env'de OPENROUTER_API_KEY)")
 def test_api_answers():
     reply = llm.chat([{"role": "user", "content": "Reply with exactly one word: OK"}], temperature=0.0,
-                     model=config.TEACHER_MODEL)
+                     model=config.LARGE_MODEL)
     assert reply["text"].strip()
     assert reply["completion_tokens"] > 0

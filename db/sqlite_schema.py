@@ -128,9 +128,9 @@ def describe_row(row):
         parts.append(full_name)
     if meaning and meaning.lower() not in (original.lower(), full_name.lower()):
         parts.append(meaning)
-    if value_description:
+    if value_description and value_description.lower().rstrip(".") not in meaning.lower():  # tekrarı yazılmaz
         parts.append(f"value description: {value_description}")
-    return ". ".join(parts)
+    return ". ".join(part.rstrip(".") for part in parts)
 
 
 def clean(text):

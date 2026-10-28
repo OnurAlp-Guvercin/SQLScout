@@ -23,8 +23,8 @@ def main():
           f" | {answer['prompt_tokens']} + {answer['completion_tokens']} token, ${answer['cost']:.4f}")
     if answer["handoff_reason"]:
         print(f"Handoff nedeni: {answer['handoff_reason']}")
-    if answer["teacher_error"]:
-        print(f"Teacher'a ulaşılamadı: {answer['teacher_error']}")
+    if answer["large_model_error"]:
+        print(f"Large model'e ulaşılamadı: {answer['large_model_error']}")
     if answer["sql"] is None:
         print(answer["error_message"])
         return
@@ -41,8 +41,8 @@ def main():
 def show_steps(answer):
     """Adımları okunur biçimde yazar."""
     for number, step in enumerate(answer["steps"], start=1):
-        if step["by"] == "teacher":
-            print("    (teacher)")
+        if step["by"] == "large_model":
+            print("    (large model)")
         if step["tool"]:
             print(f"[{number}] {step['tool']}({json.dumps(step['args'], ensure_ascii=False)})")
         else:
