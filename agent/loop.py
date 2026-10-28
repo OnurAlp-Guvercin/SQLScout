@@ -1,10 +1,5 @@
-"""Agent loop: akışın kendisi. Agent her turda tek bir tool çağırır; harness onu çalıştırır ve sonucu agent'a geri
-verir. Her tool bir dal, her dal kendi adını taşıyan dosyaya gider (harness/tools/): search_values (adım 3),
-execute_sql (adım 4–6), submit (adım 7; agent cevap olarak seçtiği SQL'i yazar).
-Agent takılırsa (ilk 4 adımda ilerleme yok ya da 2 çağrı boşa gitti, aynı çağrı 3 kez tekrarlandı, final check 2 kez
-geçmedi, teacher cevabı onaylamadı, budget bitti) harness işi teacher'a verir (adım 8): teacher soruyu sıfırdan, aynı
-döngüyle ve aynı budget'la çözer; önce tek seferde bir SQL yazar (first_try), sonra döngüde düzeltir.
-Soru bitince experience log yazılır."""
+"""Adım 2 ve 8: akışın kendisi. Agent her turda tek bir tool çağırır, harness onu çalıştırır ve sonucu geri verir;
+agent takılırsa teacher soruyu sıfırdan, aynı döngüyle çözer. Soru bitince experience log yazılır."""
 
 import json
 import threading
@@ -31,8 +26,8 @@ def answer_question(question, evidence, db_path, tags=None, score=None):
     ]
     result = run_steps(context)
     if result is None:  # adım 8: teacher soruyu sıfırdan çözer
+        start_teacher(context)
         try:
-            start_teacher(context)
             result = run_steps(context)
         except RuntimeError as error:  # teacher'ın API'si cevap vermedi: agent'ın submit ettiği SQL fallback olur
             context.teacher_error = str(error)
@@ -69,55 +64,74 @@ def run_steps(context):
         step = next_step(context)  # adım 2
         context.calls_left -= 1
         context.calls += 1
-        earlier = guards.earlier_calls(step, context)
-        by = "teacher" if context.teacher else "agent"
-
-        if step["error"]:  # tool call okunamadı: reddedilir, hata agent'a gider
-            result = step["error"]
-        elif len(earlier) >= config.MAX_REPEATS:  # kendi 3. tekrarı: takıldı
-            context.add(step, "Handoff: the same call was repeated too many times.")
-            stop(context, f"the same call was repeated {config.MAX_REPEATS} times")
+        outcome = take_step(step, context)  # adım 3–7
+        if outcome == "accepted":
+            return context.answer(step["args"]["sql"], "ok", "teacher" if context.teacher else "agent")
+        if outcome == "stopped":
             return None
-        elif earlier:  # aynı çağrı: çalıştırılmaz, önceki sonuç agent'a gider
-            result = guards.repeat_note(earlier)
-        elif step["tool"] == "search_values":
-            result = search_values.run(step["args"]["query"], context)  # adım 3
-        elif step["tool"] == "execute_sql":
-            result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
-        else:  # agent'ın da teacher'ın da submit'i aynı yoldan geçer
-            outcome = submit.run(step["args"]["sql"], context)  # adım 7
-            if outcome["done"]:
-                context.add(step, "Accepted.")
-                return context.answer(step["args"]["sql"], "ok", by)
-            if outcome["handoff"]:
-                stop(context, outcome["handoff"])
-                note = f"Handoff: {outcome['handoff']}."
-                if outcome["note"]:  # final check'in son notu agent'ın konuşmasında (experience log) kalsın
-                    note = outcome["note"] + "\n" + note
-                context.add(step, note)
-                return None
-            result = outcome["note"]  # final check notu → adım 2
-
-        context.add(step, result)
-        context.stuck = bool(step["error"] or earlier)  # reddedildi ya da tekrarladı: sıradaki adım örneklenir
-        if context.stuck or result.startswith("Rejected"):  # pre-check'in reddi de boşa gider
-            context.wasted_calls += 1
-        if not context.teacher and context.calls <= config.PROGRESS_CALLS and context.wasted_calls >= config.WASTED_CALLS:
-            # Agent ilk çağrılarında bocalıyor: teacher erken devralır.
-            stop(context, f"{config.WASTED_CALLS} of the first {config.PROGRESS_CALLS} calls were wasted")
+        reason = early_handoff(context)
+        if reason:
+            stop(context, reason)
             return None
-        if not context.teacher and context.calls == config.PROGRESS_CALLS and context.last_ok_sql is None:
-            # Dolu sonuç veren hiçbir SQL yok: teacher erken devralır.
-            stop(context, f"no query returned rows in the first {config.PROGRESS_CALLS} calls")
-            return None
-        if context.calls_left > 0:  # kalan budget yalnızca modele giden mesaja eklenir, adım kaydına değil
-            note = f"\n[{context.calls_left} tool call(s) left."
-            if context.calls_left <= config.BUDGET_WARNING:
-                note += " If a query you ran answers the question, call submit with it now."
-            context.messages[-1]["content"] += note + "]"
-
+        add_budget_note(context)
     stop(context, "the tool-call budget ran out")
     return None
+
+
+def take_step(step, context):
+    """Tek bir tool call'u çalıştırır ve sonucunu konuşmaya ekler. Her tool kendi dosyasına gider (harness/tools/).
+    Return: "accepted" (cevap kabul edildi), "stopped" (takıldı → adım 8) ya da None (döngü sürer)."""
+    earlier = guards.earlier_calls(step, context)
+    if step["error"]:  # tool call okunamadı: reddedilir, hata agent'a gider
+        result = step["error"]
+    elif len(earlier) >= config.MAX_REPEATS:  # kendi 3. tekrarı: takıldı
+        context.add(step, "Handoff: the same call was repeated too many times.")
+        stop(context, f"the same call was repeated {config.MAX_REPEATS} times")
+        return "stopped"
+    elif earlier:  # aynı çağrı: çalıştırılmaz, önceki sonuç döner
+        result = guards.repeat_note(earlier)
+    elif step["tool"] == "search_values":
+        result = search_values.run(step["args"]["query"], context)  # adım 3
+    elif step["tool"] == "execute_sql":
+        result = execute_sql.run(step["args"]["sql"], context)  # adım 4–6
+    else:  # submit: agent'ın da teacher'ın da cevabı aynı yoldan geçer
+        outcome = submit.run(step["args"]["sql"], context)  # adım 7
+        if outcome["done"]:
+            context.add(step, "Accepted.")
+            return "accepted"
+        if outcome["handoff"]:
+            context.add(step, outcome["note"])
+            stop(context, outcome["handoff"])
+            return "stopped"
+        result = outcome["note"]  # final check notu → adım 2
+
+    context.add(step, result)
+    context.stuck = bool(step["error"] or earlier)  # reddedildi ya da tekrarladı: sıradaki adım örneklenir
+    if context.stuck or result.startswith(("Rejected", "Final check failed: Rejected")):  # pre-check reddi de boşa gider
+        context.wasted_calls += 1
+    return None
+
+
+def early_handoff(context):
+    """Agent ilk PROGRESS_CALLS çağrısında ilerleyemiyorsa handoff nedeni, yoksa None. Teacher'a uygulanmaz."""
+    if context.teacher or context.calls > config.PROGRESS_CALLS:
+        return None
+    if context.wasted_calls >= config.WASTED_CALLS:  # okunamadı, tekrarlandı ya da pre-check'te reddedildi
+        return f"{config.WASTED_CALLS} of the first {config.PROGRESS_CALLS} calls were wasted"
+    if context.calls == config.PROGRESS_CALLS and context.last_ok_sql is None:  # dolu sonuç veren hiçbir SQL yok
+        return f"no query returned rows in the first {config.PROGRESS_CALLS} calls"
+    return None
+
+
+def add_budget_note(context):
+    """Kalan tool call sayısı son observation'ın altına yazılır (yalnızca modele giden mesaja, adım kaydına değil);
+    son BUDGET_WARNING hakta submit hatırlatması da eklenir."""
+    if context.calls_left == 0:
+        return
+    note = f"\n[{context.calls_left} tool call(s) left."
+    if context.calls_left <= config.BUDGET_WARNING:
+        note += " If a query you ran answers the question, call submit with it now."
+    context.messages[-1]["content"] += note + "]"
 
 
 def stop(context, reason):
@@ -140,36 +154,18 @@ def next_step(context):
 
 
 def start_teacher(context):
-    """Handoff: teacher soruyu sıfırdan çözer. Agent'ın konuşmasını görmez (küçük modelin tekrarları ve yanlış
-    denemeleri teacher'ı da yanlış yola sokuyordu); yalnızca sistem prompt'u ve adım 1'in bağlamıyla başlar. Agent'ın
-    konuşması experience log için saklanır. Teacher ilk adımını temperature 0 ile atar; final check'te kendi 2 hakkı
-    vardır ve submit edeceği SQL'in sonucunu kendisi görmüş olmalıdır."""
+    """Handoff: teacher soruyu sıfırdan çözer. Agent'ın konuşmasını görmez, yalnızca sistem prompt'u ve adım 1'in
+    bağlamıyla başlar; agent'ın konuşması experience log için saklanır. Final check hakları teacher için baştan
+    sayılır."""
     context.teacher = True
     context.stuck = False
     context.final_check_fails = 0
     context.agent_messages = context.messages
     context.messages = context.messages[:2]
-    context.seen = set()
-    context.column_noted = set()
-    first_try(context)
-
-
-def first_try(context):
-    """Teacher'ın ilk adımı: base gibi tek seferde bir SQL yazar (WRITE_SQL, temperature 0); harness onu execute_sql
-    olarak çalıştırır ve sonucu teacher'ın konuşmasına ekler. Teacher bu cevaptan başlar: doğruysa submit eder, sorun
-    görürse döngüde düzeltir. Döngüsüz teacher'ın bildiği soruyu döngüde kaybetmesin diye."""
-    messages = [{"role": "system", "content": prompts.WRITE_SQL}, context.messages[1]]
-    reply = llm.chat(messages, temperature=0, model=config.TEACHER_MODEL)
-    context.count_usage(reply)
-    sql = guards.extract_sql(reply["text"])
-    step = {"tool": "execute_sql", "args": {"sql": sql}, "id": "call_first_try",
-            "arguments": json.dumps({"sql": sql}), "text": "", "error": None}
-    context.calls += 1
-    context.add(step, execute_sql.run(sql, context))
 
 
 def fallback_answer(context):
-    """Hiçbir cevap kabul edilmediyse: agent'ın ya da teacher'ın submit ettiği ve final check'ten geçen son SQL
+    """Hiçbir cevap kabul edilmediyse: agent'ın ya da teacher'ın submit ettiği ve hatasız çalışan son SQL
     (fallback, düşük güven). Kimse böyle bir SQL submit etmediyse cevap yok (no_answer) ve nedeni. Keşif sorguları
     hiçbir zaman cevap olmaz."""
     if context.submitted_sql is None:

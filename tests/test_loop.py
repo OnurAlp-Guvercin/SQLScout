@@ -7,7 +7,6 @@ import pytest
 import config
 from agent import llm, loop
 from harness.tools import submit
-from tests.conftest import FIRST_TRY_SQL
 from tests.fakes import call_reply, execute_reply, submit_reply, text_reply, observation
 
 COUNT_SQL = "SELECT COUNT(*) FROM items"
@@ -63,7 +62,7 @@ def test_no_progress_hands_over_early(db, fake_model):
     replies += no_rows[:config.PROGRESS_CALLS] + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == f"no query returned rows in the first {config.PROGRESS_CALLS} calls"
-    assert answer["tool_calls"] == config.PROGRESS_CALLS + 1 + config.MAX_TOOL_CALLS  # teacher'ın ilk denemesi ve tam budget'ı
+    assert answer["tool_calls"] == config.PROGRESS_CALLS + config.MAX_TOOL_CALLS  # teacher'ın tam budget'ı
     assert answer["label"] == "no_answer" and answer["sql"] is None  # hiçbir SQL submit edilmedi
 
 
@@ -72,7 +71,7 @@ def test_wasted_calls_hand_over_early(db, fake_model):
     replies += agent_wastes_calls() + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == f"{config.WASTED_CALLS} of the first {config.PROGRESS_CALLS} calls were wasted"
-    assert answer["tool_calls"] == config.WASTED_CALLS + 1 + config.MAX_TOOL_CALLS
+    assert answer["tool_calls"] == config.WASTED_CALLS + config.MAX_TOOL_CALLS
 
 
 def test_error_and_empty_result_go_back_to_agent(db, fake_model):
@@ -132,14 +131,11 @@ def test_final_check_rejects_a_query_that_does_not_run(db, fake_model):
     assert answer["label"] == "ok" and answer["sql"] == COUNT_SQL
 
 
-def test_submit_of_an_unseen_query_shows_its_result_first(db, fake_model):
-    replies, seen = fake_model
-    replies += [submit_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # agent sonucu görmeden submit etti
+def test_submit_without_running_the_query_first(db, fake_model):
+    replies, _ = fake_model
+    replies += [submit_reply(COUNT_SQL)]  # agent sorguyu önce execute_sql ile denemedi
     answer = loop.answer_question("How many items?", "", db)
-    assert observation(seen[1][-1]) == ("You had not seen the result of this query yet. Its result:\n"
-                                        "Columns: COUNT(*)\n1 rows:\n150\n"
-                                        "If it answers the question, call submit with it again.")
-    assert answer["label"] == "ok" and answer["tool_calls"] == 2  # hata sayılmadı; ikinci submit kabul edildi
+    assert answer["label"] == "ok" and answer["tool_calls"] == 1 and answer["executions"] == 1  # final check çalıştırdı
 
 
 
@@ -201,8 +197,8 @@ def test_teacher_starts_fresh_without_the_agents_conversation(db, fake_model):
     replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: agent'ın sorgusunu kendisi çalıştırır
     answer = loop.answer_question("How many items?", "", db)
     teacher_start = seen[1 + config.WASTED_CALLS]
-    assert [message["content"] for message in teacher_start[:2]] == [message["content"] for message in seen[0]]
-    assert answer["steps"][1 + config.WASTED_CALLS]["args"] == {"sql": FIRST_TRY_SQL}  # teacher'ın tek seferlik denemesi
+    assert [message["content"] for message in teacher_start] == [message["content"] for message in seen[0]]
+    assert answer["steps"][1 + config.WASTED_CALLS]["by"] == "teacher"  # teacher'ın ilk adımı kendi seçtiği tool call
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
     assert answer["steps"][-2]["result"] == "Columns: COUNT(*)\n1 rows:\n150"  # agent'ın tekrarı sayılmadı
     record = json.loads(config.EXPERIENCE_LOG.read_text())
@@ -229,28 +225,18 @@ def test_stuck_agent_samples_its_next_step(db, fake_model, monkeypatch):
 
 
 def test_answer_the_teacher_does_not_approve_hands_over(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: context.teacher)  # agent'ınkini reddeder
+    monkeypatch.setattr(submit, "teacher_review", lambda sql, context: (context.teacher, "Wrong."))  # agent'ınkini reddeder
     replies, seen = fake_model
     replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL),  # agent: teacher onaylamadı
-                execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: kendi submit'i kontrol edilmez
+                execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: kendi cevabı onaylanır
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == "a reviewer judged the submitted query to be wrong"
-    assert len(seen[2]) == 4  # teacher sıfırdan başladı: sistem prompt'u, adım 1, ilk denemesi ve sonucu
+    assert len(seen[2]) == 2  # teacher sıfırdan başladı: sistem prompt'u ve adım 1
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
 
 
-def test_teacher_must_see_the_result_itself(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: context.teacher)  # agent'ınkini reddeder
-    replies, seen = fake_model
-    replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # agent: teacher onaylamadı
-    replies += [submit_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher: agent'ın gördüğünü kendisi görmedi
-    answer = loop.answer_question("How many items?", "", db)
-    assert observation(seen[3][-1]).startswith("You had not seen the result of this query yet.")
-    assert answer["label"] == "ok" and answer["answered_by"] == "teacher"
-
-
 def test_rejected_answer_is_the_fallback_when_the_teacher_cannot_solve_it(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: context.teacher)  # agent'ınkini reddeder
+    monkeypatch.setattr(submit, "teacher_review", lambda sql, context: (context.teacher, "Wrong."))  # agent'ınkini reddeder
     replies, _ = fake_model
     replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)] + teacher_gives_up()
     answer = loop.answer_question("How many items?", "", db)
@@ -258,8 +244,8 @@ def test_rejected_answer_is_the_fallback_when_the_teacher_cannot_solve_it(db, fa
 
 
 def test_fallback_is_the_last_submitted_sql(db, fake_model, monkeypatch):
-    """Teacher sonucunu görmediği bir SQL submit edip ikinci kez submit etmeden budget'ı biterse fallback o SQL olur."""
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: context.teacher)  # agent'ınkini reddeder
+    """Teacher'ın submit ettiği SQL de onaylanmaz ve budget'ı biterse fallback o SQL olur."""
+    monkeypatch.setattr(submit, "teacher_review", lambda sql, context: (False, "Wrong."))  # hiçbir cevabı onaylamaz
     replies, _ = fake_model
     replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL)]  # agent: teacher onaylamadı
     replies += [submit_reply(COUNT_SQL)] + [text_reply("I am not sure.")] * (config.MAX_TOOL_CALLS - 1)
@@ -267,11 +253,11 @@ def test_fallback_is_the_last_submitted_sql(db, fake_model, monkeypatch):
     assert answer["label"] == "fallback" and answer["sql"] == COUNT_SQL and answer["answered_by"] == "teacher"
 
 
-def test_submit_without_the_semicolon_counts_as_seen(db, fake_model):
+def test_submit_without_the_semicolon_uses_the_cache(db, fake_model):
     replies, _ = fake_model
     replies += [execute_reply(COUNT_SQL + ";"), submit_reply(COUNT_SQL)]
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["label"] == "ok" and answer["tool_calls"] == 2  # "sonucu görmedin" denmedi, hak boşa gitmedi
+    assert answer["label"] == "ok" and answer["executions"] == 1  # aynı sorgu: final check sonucu cache'ten aldı
 
 
 def test_teacher_starts_with_temperature_zero_after_a_stuck_agent(db, fake_model, monkeypatch):
@@ -293,7 +279,7 @@ def test_teacher_starts_with_temperature_zero_after_a_stuck_agent(db, fake_model
 
 
 def test_fallback_is_kept_when_the_teacher_cannot_be_reached(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: context.teacher)  # agent'ınkini reddeder
+    monkeypatch.setattr(submit, "teacher_review", lambda sql, context: (context.teacher, "Wrong."))  # agent'ınkini reddeder
     replies, _ = fake_model
     replies += [execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]
     fake = llm.chat
@@ -334,24 +320,11 @@ def test_no_answer_says_why_the_teacher_stopped(db, fake_model):
 
 
 def test_rejected_teacher_answer_comes_back_as_a_note(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "teacher_approves", lambda sql, context: sql == COUNT_SQL)
+    monkeypatch.setattr(submit, "teacher_review", lambda sql, context: (sql == COUNT_SQL, "It lists ids."))
     replies, _ = fake_model
     replies += [execute_reply(EMPTY_SQL), submit_reply(EMPTY_SQL)]  # agent: reddedildi → handoff
     replies += [execute_reply("SELECT id FROM items"), submit_reply("SELECT id FROM items"),  # teacher: reddedildi
                 execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher düzeltti
     answer = loop.answer_question("How many items?", "", db)
-    assert answer["steps"][-3]["result"] == submit.REVIEWER_NOTE
+    assert answer["steps"][-3]["result"] == submit.REVIEWER_NOTE.format(reason="It lists ids.")  # gerekçe teacher'a döndü
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
-
-
-def test_agent_removes_an_extra_column_after_the_note(db, fake_model, monkeypatch):
-    monkeypatch.setattr(submit, "extra_column_note",
-                        lambda sql, context: submit.COLUMNS_NOTE.format(columns="`id`, `city`") if "id, city" in sql else None)
-    replies, _ = fake_model
-    replies += [execute_reply("SELECT id, city FROM items WHERE id = 5"),
-                submit_reply("SELECT id, city FROM items WHERE id = 5"),  # fazladan sütun: not döner
-                execute_reply("SELECT city FROM items WHERE id = 5"), submit_reply("SELECT city FROM items WHERE id = 5")]
-    answer = loop.answer_question("Which city has item 5?", "", db)
-    assert answer["steps"][1]["result"] == submit.COLUMNS_NOTE.format(columns="`id`, `city`")
-    assert answer["label"] == "ok" and answer["answered_by"] == "agent"
-    assert answer["sql"] == "SELECT city FROM items WHERE id = 5" and answer["handoff_reason"] is None

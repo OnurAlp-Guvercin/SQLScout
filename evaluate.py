@@ -6,6 +6,7 @@ Kullanım: python evaluate.py --name <deney> [--limit n]
 import argparse
 import json
 import random
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -72,7 +73,7 @@ def run_one(question):
         if teacher_check:  # teacher'ın onayladığı ya da reddettiği SQL doğru muydu? Cevapla aynıysa yeniden çalışmaz
             same = teacher_check["sql"] == row["sql"]
             teacher_check["correct"] = row["correct"] if same else check(teacher_check["sql"])
-    except RuntimeError as error:  # ör. API birkaç denemeye rağmen cevap vermedi
+    except Exception as error:  # ör. API birkaç denemeye rağmen cevap vermedi; koşu diğer sorularla sürer
         row["correct"] = False
         row["error"] = str(error)
     row["seconds"] = round(time.monotonic() - start, 2)
@@ -86,8 +87,15 @@ def experiment_header(args, question_count):
             settings[name] = str(value) if isinstance(value, Path) else value
     prompt_texts = {name: value for name, value in vars(prompts).items() if name.isupper()}
     return {"experiment": args.name, "dataset": "bird", "split": "dev",
-            "limit": args.limit, "question_count": question_count, "config": settings,
+            "limit": args.limit, "question_count": question_count, "code": code_version(), "config": settings,
             "prompts": prompt_texts}
+
+
+def code_version():
+    """Deneyin çalıştığı kod: git commit'i ve commit edilmemiş değişiklik var mı (harness'ın notları da koddadır)."""
+    def git(*command):
+        return subprocess.run(["git", *command], cwd=config.PROJECT_DIR, capture_output=True, text=True).stdout.strip()
+    return {"commit": git("rev-parse", "HEAD"), "uncommitted_changes": bool(git("status", "--porcelain"))}
 
 
 def main():

@@ -30,7 +30,7 @@ svg, divs = [], []
 def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-0.8B · hedef Qwen3.5-4B',
-      '<b>Şimdi:</b> eğitilmemiş. <b>İleride:</b> harness içinde, experience log\'la SFT → on-policy distillation → RL',
+      '<b>Şimdi:</b> eğitilmemiş. <b>İleride:</b> harness içinde, experience log\'la eğitim (yöntem açık)',
       '<b>Rolü:</b> hangi tool\'u çağıracağına karar verir: değer arar, SQL dener, sonuca bakar, düzeltir'),
      ('harness','HARNESS (LLM yok)','düz Python',
       'Context preparation, search_values, pre-check, sonucu metne çevirme, final check, handoff kararı',
@@ -121,11 +121,11 @@ node(822,900,324,104,'harness','Sonuç','En fazla 20 satır · boş ya da yalnı
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'gerçek sonuç','b')
 
-node(822,1036,324,128,'decision','Final check','Hatasız çalışıyor mu · agent sonucunu gördü mü (görmediyse gösterilir) · fazladan sütun yok mu · teacher onaylıyor mu',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','1. Hatasız çalışıyor mu · 2. teacher doğru buluyor mu (JSON: karar ve gerekçe)',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'geçmedi → not · çalışmaya devam','p')
 
-node(1574,1040,324,110,'teacher','Teacher','Agent\'ın konuşmasını görmez: önce tek SQL yazar, sonra kendi döngüsünde 10 tool call ile düzeltir',tsize=19)
+node(1574,1040,324,110,'teacher','Teacher','Agent\'ın konuşmasını görmez: agent\'la aynı döngüde, 10 tool call ile soruyu sıfırdan çözer',tsize=19)
 arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'2 kez geçmedi ya da teacher hayır dedi','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'teacher\'ın submit\'i de buradan geçer','t')
 
@@ -136,7 +136,7 @@ arrow([(984,1164),(984,1280),(1218,1280)],'p'); label(1100,1280,'geçti','p')
 # experience log: evaluate.py her soru puanlandıktan sonra bütün konuşmayı yazar; agent ileride bununla eğitilir
 node(1600,1500,270,100,'offline','Experience log','her soru: bütün konuşma, cevap, doğru mu',shape='cyl',tsize=18)
 arrow([(1522,1280),(1560,1280),(1560,1550),(1596,1550)],'g',dashed=True)
-node(70,1500,320,100,'policy','Agent eğitimi (ileride)','SFT → on-policy distillation → RL · yalnızca train kayıtları',dashed=True,tsize=18)
+node(70,1500,320,100,'policy','Agent eğitimi (ileride)','SFT, RL ya da distillation (on/off-policy, self); biri ya da birleşimi · karar verilmedi · yalnızca train kayıtları',dashed=True,tsize=18)
 arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'eğitim verisi','g',dashed=True)
 
 # step badges

@@ -34,23 +34,20 @@ return only what the question asks for: leave out helper columns you added only 
 
 {SQL_RULES}"""
 
-# Teacher kontrolü (adım 7): agent'ın cevabını kabul etmeden önce teacher doğru mu diye bakar.
+# Teacher kontrolü (adım 7): her cevap kabul edilmeden önce teacher bağlamı, SQL'i ve sonucu görüp doğru mu diye bakar.
 CHECK_ANSWER = f"""You are an expert SQLite analyst. You are given a database schema with column descriptions and \
 value samples, sometimes evidence, a question, a SQL query written for it and its result. Decide whether the query \
-answers the question correctly: the right tables, joins, conditions and values, and only what the question asks for.
+answers the question correctly. Check two things:
+1. Columns: say what the question asks to return, then look at each column of the result. Every column must be asked \
+for. A column added only to identify, explain or check the answer (an id or a name the question does not ask for, the \
+value used for ordering, a count) makes the answer wrong, even if the asked value is also in the result. If the \
+question names the field to return (e.g. "indicate the id"), only that field is asked for.
+2. Rows: the right tables, joins, conditions and values, so that the result holds exactly what the question asks for.
 
 {SQL_RULES}
 
-Reply with exactly one word: yes or no."""
-
-# Sütun kontrolü (adım 7): birden çok sütunlu cevapta soru her sütunu istiyor mu? Döngüde keşif sorgularının
-# yardımcı sütunları (id, ad) cevapta kalıyordu; genel kontrol bunu fark etmiyordu.
-COLUMN_CHECK = """You are an expert SQLite analyst. You are given a question, sometimes evidence, and the columns of a \
-SQL query's result written to answer it. Decide whether the question asks for every one of these columns. A column \
-the question does not ask for, e.g. an id, name or count that was only added to check the answer, is extra. If the \
-question asks for one value (e.g. a count, a percentage or a difference), the result should have only that column.
-
-Reply with exactly one word: yes if every column is asked for, no if there is an extra column."""
+Reply with only a JSON object: first the reason (the columns check, then the rows check), then your decision.
+{{"reason": "<columns: ...; rows: ...>", "correct": <true or false>}}"""
 
 # Tool'lar (Qwen'in tool-call biçimi). Agent'a ve teacher'a aynı tool'lar sunulur.
 SEARCH_VALUES = {"type": "function", "function": {

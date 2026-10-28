@@ -20,15 +20,15 @@ This document describes how the code is organized, how it is written and in what
 
 | File | Place in the flow | What it does |
 |---|---|---|
-| `agent/loop.py` | Steps 2, 8 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → experience log. `run_steps`: the loop over one budget; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`; an early handoff if there is no progress in the first 4 steps or 2 calls were wasted. `next_step`: the next tool call from the model (sampled when stuck). Handoff: `start_teacher` (the teacher solves the question from scratch: it does not see the agent's conversation and starts with only the step 1 context and a full budget), `first_try` (the teacher's first step: it writes a single SQL like the base, and the harness runs it as `execute_sql`), `fallback_answer` (the last submitted SQL that passed the final check, low confidence; otherwise `no_answer` and `error_message`; also when the teacher's API does not answer, `teacher_error`). `stop`: why the loop stopped (`handoff_reason` for the agent, `teacher_stop_reason` for the teacher). `write_experience`: the experience log, when each question ends |
-| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent and teacher, the base's single SQL, the teacher's check, the column check) and the tool definitions (`TOOLS`) |
+| `agent/loop.py` | Steps 2, 8 | The flow itself. `answer_question`: step 1 → agent → (if stuck) teacher → fallback → experience log. `run_steps`: the loop over one budget. `take_step`: a single tool call; each tool is one branch, each branch goes to `run` in `harness/tools/<tool>.py`. `early_handoff`: an early handoff if there is no progress in the first 4 steps or 2 calls were wasted. `add_budget_note`: the number of tool calls left. `next_step`: the next tool call from the model (sampled when stuck). Handoff: `start_teacher` (the teacher solves the question from scratch: it does not see the agent's conversation and starts with only the agent's system prompt, the step 1 context and a full budget; like the agent, it chooses what to do itself), `fallback_answer` (the last submitted SQL that runs without error, low confidence; otherwise `no_answer` and `error_message`; also when the teacher's API does not answer, `teacher_error`). `stop`: why the loop stopped (`handoff_reason` for the agent, `teacher_stop_reason` for the teacher). `write_experience`: the experience log, when each question ends |
+| `agent/prompts.py` | | Everything the model sees: the prompt texts (agent and teacher, the base's single SQL, the teacher's check) and the tool definitions (`TOOLS`) |
 | `agent/llm.py` | | Sends a request to the model (`chat`), counts tokens (`count_tokens`). The policy goes to a local `mlx_lm.server`, the teacher to OpenRouter (`LLM_URL`, `TEACHER_URL`); both use the OpenAI format, the addresses are in `config.py`. To try it: `python -m agent.llm "question"` |
 | `agent/context.py` | | `Context`: the state kept while answering one question (conversation, budget, cache, counters) |
 | `harness/prepare.py` | Step 1 | `build_context`: the initial context (schema, descriptions, foreign keys, column profiles, evidence, question). `is_near_unique`: a text column where almost every row is different; fewer samples are shown for it. To try it: `python -m harness.prepare <sqlite path> "question" ["evidence"]` |
 | `harness/tools/search_values.py` | Step 3 | Search in the value index (FTS5 trigram + `difflib`; exact match for texts shorter than 3 letters; exact letters first). If a text with several words is not found, each word is searched separately. If no value is found, the columns with a similar name (`similar_columns`; also used by `execute_sql`'s error note) |
-| `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache; an exploration query may run 50 seconds, a submitted main query (`answer=True`) 200 seconds, and a timeout during exploration is not cached. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty or only 0/NULL). `has_rows`: does the result really have rows (a single row that is only 0/NULL does not; the progress limit uses it). `sql_key`: a key that ignores whitespace and a trailing `;` (cache, repeats, `context.seen`) |
-| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`; handoff if it fails twice; if the agent had not seen the result, it shows the result first (`context.seen`). `final_check`: pre-check, does it run without error as a main query (200 s); after the second failure the last note is added to the handoff message; a SQL that passes becomes `context.submitted_sql` (the fallback candidate). `extra_column_note`: if the result has more than one column, it asks the teacher, with only the question, the evidence and the column names, "does the question ask for every column?" (`COLUMN_CHECK`); on "no", `COLUMNS_NOTE` goes back to the agent (or the teacher) and counts as a final check try; if the same SQL is submitted again, the column check is skipped (`context.column_noted`). `teacher_approves`: the teacher checks the answer (`CHECK_ANSWER`; the result without the note meant for the agent, `format_result(hint=False)`); if it does not approve the agent's answer, handoff; if it does not approve its own answer, `REVIEWER_NOTE` is returned and counts as a final check try; the decision on the agent's answer is written to `context.teacher_check`. If the teacher's API does not answer, the answer is accepted (`teacher_error`) |
-| `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `extract_sql`: the SQL in the model's plain-text reply (the base and the teacher's first try). `clean_sql`: removes ```sql fences (with any text after the closing fence) and leading `--` or `/* */` comments around the SQL; the base uses it too. `earlier_calls`: the caller's (agent or teacher) own repeated calls (handoff on the third repeat). `compress`: compressing the context |
+| `harness/tools/execute_sql.py` | Steps 4–6 | `run`: the agent's `execute_sql`. `check`: pre-check (read-only, `EXPLAIN`); `error_hint` adds what is needed to fix the error to the note (the columns of the tables in the query, the alias, the tables). `run_sql`: real execution or cache; an exploration query may run 50 seconds, a submitted main query (`answer=True`) 200 seconds, and a timeout during exploration is not cached. `format_result`: turns the result into text (20 rows; a `search_values` reminder if empty or only 0/NULL). `has_rows`: does the result really have rows (a single row that is only 0/NULL does not; the progress limit uses it). `sql_key`: a key that ignores whitespace and a trailing `;` (cache, repeats) |
+| `harness/tools/submit.py` | Step 7 | `run`: the agent's and the teacher's `submit`; two gates in order: does it run without error, does the teacher find it correct. `fail`: the failed gate's note is returned and one try is used; handoff on the second (the last note stays in the handoff message). `runs_without_error`: pre-check, does it run without error as a main query (200 s); a SQL that passes becomes `context.submitted_sql` (the fallback candidate). `teacher_review`: the teacher checks every answer (`CHECK_ANSWER`; a separate context: the step 1 context, the SQL and the result without the note meant for the agent, `format_result(hint=False)`); its reply is JSON, `{"reason", "correct"}`, read by `read_review` (a reply that cannot be read is not an approval); if the agent's answer is wrong, handoff (the reason stays in the agent's conversation); if the teacher's own answer is wrong, `REVIEWER_NOTE` with the reason is returned and counts as a final check try; the decision on the agent's answer is written to `context.teacher_check`. If the teacher's API does not answer, the answer is accepted (`teacher_error`) |
+| `harness/guards.py` | Every step | `read_tool_call`: rejecting broken output. `extract_sql`: the SQL in the model's plain-text reply (the base). `clean_sql`: removes ```sql fences (with any text after the closing fence) and leading `--` or `/* */` comments around the SQL; the base uses it too. `earlier_calls`: the caller's (agent or teacher) own repeated calls (handoff on the third repeat). `compress`: compressing the context |
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
 | `config.py` | | All constants (table below) |
@@ -49,7 +49,7 @@ The agent makes a single tool call each turn. Tool calls are written in Qwen's o
 |---|---|---|---|
 | `search_values` | `query` | The 5 most relevant values that contain the word or are spelled similarly (exact match for words shorter than 3 letters): `table.column = 'value'` | Step 3 |
 | `execute_sql` | `sql` | The real result (at most 20 rows; a `search_values` reminder if empty or only 0/NULL) or a pre-check note | Steps 4–6 |
-| `submit` | `sql` | The answer is returned; or a final check note, or the result if the agent had not seen it | Step 7 |
+| `submit` | `sql` | The answer is returned, or a final check note | Step 7 |
 
 - **`search_values`:** Searches an SQLite FTS5 index built from the distinct values of text columns. The index uses trigrams (a part of a word also matches); the matches are ranked by spelling similarity with `difflib`, so a search for "Los Angles" finds "Los Angeles". Trigrams cannot search a text shorter than 3 letters; a short text (e.g. "UK") is searched by exact match, ignoring upper/lower case. The index is built once per database and stored in `data/prepared/<db_id>/values.sqlite`.
 
@@ -72,38 +72,41 @@ The agent makes a single tool call each turn. Tool calls are written in Qwen's o
 The core of `agent/loop.py` (simplified). Each branch goes to a single file:
 
 ```python
-def run_steps(context):
+def run_steps(context):                                              # the loop over one budget
     context.calls_left = config.MAX_TOOL_CALLS                      # agent and teacher both 10
     while context.calls_left > 0:
-        guards.compress(context)
         step = next_step(context)                                   # step 2
         context.calls_left -= 1
-        earlier = guards.earlier_calls(step, context)
-
-        if step["error"]:                                           # tool call could not be read: rejected
-            result = step["error"]
-        elif len(earlier) >= config.MAX_REPEATS:                    # its own third repeat: stuck → step 8
+        outcome = take_step(step, context)                          # steps 3–7
+        if outcome == "accepted":
+            return context.answer(sql, "ok")
+        if outcome == "stopped" or early_handoff(context):         # stuck → step 8
             return None
-        elif earlier:                                               # same call: the earlier result is returned
-            result = guards.repeat_note(earlier)
-        elif step["tool"] == "search_values":
-            result = search_values.run(query, context)              # step 3
-        elif step["tool"] == "execute_sql":
-            result = execute_sql.run(sql, context)                  # steps 4–6
-        else:
-            outcome = submit.run(sql, context)                      # step 7
-            if outcome["done"]:
-                return context.answer(sql, "ok")
-            if outcome["handoff"]:
-                return None                                         # final check failed twice → step 8
-            result = outcome["note"]                                # final check note → step 2
-
-        context.add(step, result)
-        if agent and 2 of the first 4 calls were wasted:
-            return None                                             # floundering → step 8
-        if agent and context.calls == 4 and no SQL returned rows:
-            return None                                             # no progress → step 8
+        add_budget_note(context)
     return None                                                     # out of budget → step 8
+
+
+def take_step(step, context):                                       # a single tool call
+    earlier = guards.earlier_calls(step, context)
+    if step["error"]:                                               # tool call could not be read: rejected
+        result = step["error"]
+    elif len(earlier) >= config.MAX_REPEATS:                        # its own third repeat: stuck
+        return "stopped"
+    elif earlier:                                                   # same call: the earlier result is returned
+        result = guards.repeat_note(earlier)
+    elif step["tool"] == "search_values":
+        result = search_values.run(query, context)                  # step 3
+    elif step["tool"] == "execute_sql":
+        result = execute_sql.run(sql, context)                      # steps 4–6
+    else:
+        outcome = submit.run(sql, context)                          # step 7
+        if outcome["done"]:
+            return "accepted"
+        if outcome["handoff"]:
+            return "stopped"                                        # e.g. the final check failed twice
+        result = outcome["note"]                                    # the check's note → step 2
+    context.add(step, result)
+    return None
 ```
 
 ## `config.py` constants
@@ -132,8 +135,8 @@ def run_steps(context):
 ## Record formats
 
 **`results/<experiment>.jsonl`** (one file per experiment; repeated runs use different names):
-- The first line is the experiment itself: experiment name, dataset (`bird`), `--limit`, number of questions, all `config.py` values and the prompt texts. In `baseline.py`'s file: the model, the temperature and the prompt.
-- Every following line is a question: `question_id`, `db_id`, `sql` (the answer), `label`, `answered_by` (agent / teacher), `error_message` (the reason if there is no answer; `answered_by` is empty for `no_answer`), `correct`, `tool_calls`, `executions` (number of real executions), `handoff_reason`, `teacher_stop_reason` (why the teacher's loop stopped), `teacher_check` (the SQL the agent submitted, the teacher's decision `approved` and whether the SQL was really correct `correct`), `teacher_error` (if the teacher's API could not be reached), `steps` (every tool call and observation; the `by` field says agent or teacher), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. If the gold SQL gives an error, `gold_error` is written; if the model does not answer, `error`.
+- The first line is the experiment itself: experiment name, dataset (`bird`), `--limit`, number of questions, the code's git commit (`code`: the commit and whether there are uncommitted changes), all `config.py` values and the prompt texts. In `baseline.py`'s file: the model, the temperature and the prompt.
+- Every following line is a question: `question_id`, `db_id`, `sql` (the answer), `label`, `answered_by` (agent / teacher), `error_message` (the reason if there is no answer; `answered_by` is empty for `no_answer`), `correct`, `tool_calls`, `executions` (number of real executions), `handoff_reason`, `teacher_stop_reason` (why the teacher's loop stopped), `teacher_check` (the SQL the agent submitted, the teacher's decision `approved`, its reason `reason` and whether the SQL was really correct `correct`), `teacher_error` (if the teacher's API could not be reached), `steps` (every tool call and observation; the `by` field says agent or teacher), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. If the gold SQL gives an error, `gold_error` is written; if the model does not answer, `error`.
 
 **`experience/log.jsonl`** (experience log; the agent's future training data, records accumulate; written by `agent/loop.py` when each question ends): each line is a question: time, split (`use` in use, `dev` in evaluation; `correct` is filled only in `dev`), dataset, `question_id`, `db_id`, question, evidence, gold SQL, answer SQL, `label`, `correct`, `answered_by`, `handoff_reason`, `teacher_stop_reason`, `teacher_error`, model names, `messages` (the whole conversation the agent saw: system prompt, step 1 context, every tool call and observation) and `teacher_messages` (after a handoff, the teacher's conversation that starts from scratch; otherwise empty). Only `split = train` lines are used for training.
 
@@ -143,7 +146,7 @@ def run_steps(context):
 The system is written in small stages: each stage adds a single part, is tested with `pytest tests/` and one real question (`run.py`), and the next stage starts after the user approves. The user is told in 2–3 sentences what was done and how it was tried.
 
 All 8 steps of the flow are done. Next stages:
-1. **Agent training:** SFT → on-policy distillation → RL with the experience log; only train records.
+1. **Agent training:** with the experience log; the method is open (SFT, distillation or RL, one or a mix); only train records.
 2. **Local models:** for the paper's numbers, the policy (Qwen3.5-4B) and the teacher run locally.
 
 ## Diagram

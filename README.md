@@ -22,8 +22,8 @@ Each column is a component: 🟦 policy agent, 🟩 harness (plain Python, no LL
 | 4 | `execute_sql` | Agent | The agent sends the SQL it wants to try, or a small query to check something it is not sure about |
 | 5 | Pre-check | Harness | Is it read-only? Does `EXPLAIN` fail? Has it run before (cache)? |
 | 6 | Real execution | Harness | The real result goes back to the agent (at most 20 rows); if it is empty or only 0/NULL, a note suggests checking the value's spelling with `search_values` |
-| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Does it run without error, has the agent seen its result (if not, the result is shown first), does the result have only the columns the question asks for, and does the teacher approve it? If it fails, a note goes back to the agent; failing twice or the teacher saying no → 8 |
-| 8 | Handoff | Teacher | No progress or 2 wasted calls in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher solves the question from scratch: it first writes a single SQL, then fixes it in its own agent loop with 10 tool calls; its answer is checked too |
+| 7 | `submit` → final check | Harness | The agent submits the SQL it chooses; queries in between do not matter. Two gates: does it run without error, and does the teacher find it correct (a JSON reply with a reason)? If it does not run, a note goes back to the agent; failing twice or the teacher saying no → 8 |
+| 8 | Handoff | Teacher | No progress or 2 wasted calls in the first 4 steps, the same call 3 times, the final check failing twice, the teacher not approving the answer, or out of budget: the teacher solves the question from scratch in the same agent loop as the agent, with the same prompt and 10 tool calls; its answer is checked too |
 
 Example: *"Which category had the most returns in 2025?"* → 1 → 2 → 4 (SQL) → 5 → 6 (1 row) → 2 → 7 (passed) → ✔
 
@@ -49,7 +49,7 @@ Each step of the flow lives in a single file, and each of the agent's tools in i
 | `harness/prepare.py` | 1 | Initial context: schema, column descriptions and profiles, evidence |
 | `harness/tools/search_values.py` | 3 | Searching values |
 | `harness/tools/execute_sql.py` | 4–6 | Pre-check, real execution and cache, turning the result into text |
-| `harness/tools/submit.py` | 7 | Final check; the agent must have seen the result of what it submits; no column the question does not ask for; the teacher checks the agent's answer |
+| `harness/tools/submit.py` | 7 | Final check: runs without error; the teacher checks every answer and gives a reason |
 | `harness/guards.py` | every step | Guardrails: broken output, repeated calls, compressing the context |
 | `db/` | 1, 5, 6 | SQLite: read-only execution, `EXPLAIN`, schema, profiles and column descriptions |
 | `baseline.py` | | The base for comparison: a tool-free single SQL |
@@ -62,7 +62,7 @@ Every part of the flow is always on. Details: [docs/en/CODE_STRUCTURE.md](docs/e
 ## Status
 
 - ✅ All 8 steps of the flow, on BIRD.
-- ⏭ **Next:** training the agent inside the harness with the experience log (SFT → on-policy distillation → RL).
+- ⏭ **Next:** training the agent inside the harness with the experience log (method open: SFT, distillation, RL or a mix).
 - ⏸ **Later:** the paper's numbers with local models (Qwen3.5-4B policy). Development runs use a local Qwen3.5-0.8B policy and a Qwen3.5-9B teacher on the API.
 
 ## Running

@@ -18,15 +18,15 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 
 | Dosya | Akıştaki yeri | Ne yapar |
 |---|---|---|
-| `agent/loop.py` | Adım 2, 8 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → experience log. `run_steps`: bir budget boyunca döngü; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider; ilk 4 adımda ilerleme yoksa ya da 2 çağrı boşa gittiyse erken handoff. `next_step`: modelden sıradaki tool call (takılınca örnekleme). Handoff: `start_teacher` (teacher soruyu sıfırdan çözer: agent'ın konuşmasını görmez, yalnızca adım 1'in bağlamıyla ve tam budget'la başlar), `first_try` (teacher'ın ilk adımı: base gibi tek SQL yazar, harness onu `execute_sql` olarak çalıştırır), `fallback_answer` (submit edilen ve final check'ten geçen son SQL, düşük güven; yoksa `no_answer` ve `error_message`; teacher'ın API'si cevap vermezse de, `teacher_error`). `stop`: döngünün neden durduğu (agent için `handoff_reason`, teacher için `teacher_stop_reason`). `write_experience`: her soru bitince experience log |
-| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent ve teacher, base'in tek SQL'i, teacher kontrolü, sütun kontrolü) ve tool tanımları (`TOOLS`) |
+| `agent/loop.py` | Adım 2, 8 | Akışın kendisi. `answer_question`: adım 1 → agent → (takılırsa) teacher → fallback → experience log. `run_steps`: bir budget boyunca döngü. `take_step`: tek bir tool call; her tool bir dal, her dal `harness/tools/<tool>.py`'nin `run`'ına gider. `early_handoff`: ilk 4 adımda ilerleme yoksa ya da 2 çağrı boşa gittiyse erken handoff. `add_budget_note`: kalan tool call sayısı. `next_step`: modelden sıradaki tool call (takılınca örnekleme). Handoff: `start_teacher` (teacher soruyu sıfırdan çözer: agent'ın konuşmasını görmez, yalnızca agent'ın sistem prompt'u ve adım 1'in bağlamıyla ve tam budget'la başlar; ne yapacağını agent gibi kendisi seçer), `fallback_answer` (submit edilen ve hatasız çalışan son SQL, düşük güven; yoksa `no_answer` ve `error_message`; teacher'ın API'si cevap vermezse de, `teacher_error`). `stop`: döngünün neden durduğu (agent için `handoff_reason`, teacher için `teacher_stop_reason`). `write_experience`: her soru bitince experience log |
+| `agent/prompts.py` | | Modelin gördüğü her şey: prompt metinleri (agent ve teacher, base'in tek SQL'i, teacher kontrolü) ve tool tanımları (`TOOLS`) |
 | `agent/llm.py` | | Modele istek atar (`chat`), token sayar (`count_tokens`). Policy yerel `mlx_lm.server`'a, teacher OpenRouter'a gider (`LLM_URL`, `TEACHER_URL`); ikisi de OpenAI biçimi, adresler `config.py`'de. Denemek için: `python -m agent.llm "soru"` |
 | `agent/context.py` | | `Context`: bir soru boyunca tutulan durum (konuşma, budget, cache, sayaçlar) |
 | `harness/prepare.py` | Adım 1 | `build_context`: başlangıç bağlamı (şema, açıklamalar, foreign key'ler, column profile'ları, evidence, soru). `is_near_unique`: neredeyse her satırı farklı metin sütunu; bunlarda az örnek gösterilir. Denemek için: `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` |
 | `harness/tools/search_values.py` | Adım 3 | Değer index'inde arama (FTS5 trigram + `difflib`; 3 harften kısa metinde tam eşleşme; harfleri birebir tutan önce). Birden çok kelimeli metin bulunamazsa kelimeler tek tek aranır. Değer bulunamazsa adı benzeyen sütunlar (`similar_columns`; `execute_sql`'in hata notu da kullanır) |
-| `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache; keşif sorgusu 50, submit edilen ana sorgu (`answer=True`) 200 saniye çalışabilir, keşifteki zaman aşımı cache'e girmez. `format_result`: sonucu metne çevirir (20 satır; boşsa ya da yalnızca 0/NULL ise `search_values` hatırlatması). `has_rows`: sonuç gerçekten dolu mu (tek satırı yalnızca 0/NULL olan sonuç dolu değildir; ilerleme sınırı buna bakar). `sql_key`: boşlukları ve sondaki `;`'yi önemsemeyen key (cache, tekrar, `context.seen`) |
-| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i; 2 kez geçmezse handoff; agent sonucu görmediyse önce sonucu gösterir (`context.seen`). `final_check`: pre-check, ana sorgu olarak (200 sn) hatasız çalışıyor mu; ikinci kez geçmezse son not handoff mesajına eklenir; geçen SQL `context.submitted_sql` olur (fallback adayı). `extra_column_note`: sonuç birden çok sütunluysa teacher'a yalnızca soru, evidence ve sütun adlarıyla "soru her sütunu istiyor mu?" diye sorar (`COLUMN_CHECK`); "hayır"sa `COLUMNS_NOTE` agent'a (ya da teacher'a) döner ve final check hakkından düşer; aynı SQL yeniden submit edilirse sütun kontrolü atlanır (`context.column_noted`). `teacher_approves`: cevabı teacher kontrol eder (`CHECK_ANSWER`; sonuç agent'a yönelik notsuz, `format_result(hint=False)`); agent'ın cevabını onaylamazsa handoff, teacher'ın kendi cevabını onaylamazsa `REVIEWER_NOTE` döner ve final check hakkından düşer; agent'ın cevabına verilen karar `context.teacher_check`'e yazılır. Teacher'ın API'si cevap vermezse cevap kabul edilir (`teacher_error`) |
-| `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `extract_sql`: modelin düz metin cevabındaki SQL (base ve teacher'ın ilk denemesi). `clean_sql`: SQL'in etrafındaki ```sql işaretleri (kapanıştan sonraki metinle birlikte) ve baştaki `--` ya da `/* */` yorumları atılır; base de bunu kullanır. `earlier_calls`: çağıranın (agent ya da teacher) kendi çağrısını tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
+| `harness/tools/execute_sql.py` | Adım 4–6 | `run`: agent'ın `execute_sql`'i. `check`: pre-check (salt okuma, `EXPLAIN`); `error_hint` hata notuna düzeltmek için gerekeni ekler (sorgudaki tabloların sütunları, alias, tablolar). `run_sql`: gerçek çalıştırma ya da cache; keşif sorgusu 50, submit edilen ana sorgu (`answer=True`) 200 saniye çalışabilir, keşifteki zaman aşımı cache'e girmez. `format_result`: sonucu metne çevirir (20 satır; boşsa ya da yalnızca 0/NULL ise `search_values` hatırlatması). `has_rows`: sonuç gerçekten dolu mu (tek satırı yalnızca 0/NULL olan sonuç dolu değildir; ilerleme sınırı buna bakar). `sql_key`: boşlukları ve sondaki `;`'yi önemsemeyen key (cache, tekrar) |
+| `harness/tools/submit.py` | Adım 7 | `run`: agent'ın ve teacher'ın `submit`'i; iki kapı sırayla: hatasız çalışıyor mu, teacher doğru buluyor mu. `fail`: geçmeyen kapının notu döner ve bir hak düşer; 2. seferde handoff (son not handoff mesajında kalır). `runs_without_error`: pre-check, ana sorgu olarak (200 sn) hatasız çalışıyor mu; geçen SQL `context.submitted_sql` olur (fallback adayı). `teacher_review`: her cevabı teacher kontrol eder (`CHECK_ANSWER`; ayrı context: adım 1'in bağlamı, SQL ve agent'a yönelik notsuz sonuç, `format_result(hint=False)`); cevabı JSON: `{"reason", "correct"}`, `read_review` okur (okunamazsa onay sayılmaz); agent'ın cevabı yanlışsa handoff (gerekçe agent'ın konuşmasında kalır), teacher'ın kendi cevabı yanlışsa gerekçesiyle `REVIEWER_NOTE` döner ve final check hakkından düşer; agent'ın cevabına verilen karar `context.teacher_check`'e yazılır. Teacher'ın API'si cevap vermezse cevap kabul edilir (`teacher_error`) |
+| `harness/guards.py` | Her adım | `read_tool_call`: bozuk çıktının reddi. `extract_sql`: modelin düz metin cevabındaki SQL (base). `clean_sql`: SQL'in etrafındaki ```sql işaretleri (kapanıştan sonraki metinle birlikte) ve baştaki `--` ya da `/* */` yorumları atılır; base de bunu kullanır. `earlier_calls`: çağıranın (agent ya da teacher) kendi çağrısını tekrarı (3. tekrarda handoff). `compress`: bağlamın sıkıştırılması |
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
 | `config.py` | | Tüm sabitler (aşağıdaki tablo) |
@@ -47,7 +47,7 @@ Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call b
 |---|---|---|---|
 | `search_values` | `query` | Kelimeyi içeren ya da ona benzer yazılan en ilgili 5 değer (3 harften kısa kelimede tam eşleşme): `tablo.sütun = 'değer'` | Adım 3 |
 | `execute_sql` | `sql` | Gerçek sonuç (en fazla 20 satır; boşsa ya da yalnızca 0/NULL ise `search_values` hatırlatması) ya da pre-check notu | Adım 4–6 |
-| `submit` | `sql` | Cevap return edilir; ya da final check notu, ya da agent sonucu görmediyse sonuç | Adım 7 |
+| `submit` | `sql` | Cevap return edilir ya da final check notu | Adım 7 |
 
 - **`search_values`:** Metin sütunlarının farklı değerlerinden kurulmuş bir SQLite FTS5 index'inde arar. Index trigram'lıdır (kelimenin bir parçası da eşleşir); adaylar `difflib` ile yazım benzerliğine göre sıralanır, böylece "Los Angles" araması "Los Angeles"ı bulur. Trigram 3 harften kısa metni arayamaz; kısa metin (ör. "UK") büyük/küçük harf farkı gözetmeden tam eşleşmeyle aranır. Index her veritabanı için bir kez kurulur ve `data/prepared/<db_id>/values.sqlite`'ta saklanır.
 
@@ -70,38 +70,41 @@ Agent her turda tek bir tool call yapar. Tool call'lar Qwen'in kendi tool-call b
 `agent/loop.py`'nin özü (sadeleştirilmiş). Her dal tek bir dosyaya gider:
 
 ```python
-def run_steps(context):
+def run_steps(context):                                              # bir budget boyunca döngü
     context.calls_left = config.MAX_TOOL_CALLS                      # agent da teacher da 10
     while context.calls_left > 0:
-        guards.compress(context)
         step = next_step(context)                                   # adım 2
         context.calls_left -= 1
-        earlier = guards.earlier_calls(step, context)
-
-        if step["error"]:                                           # tool call okunamadı: reddedilir
-            result = step["error"]
-        elif len(earlier) >= config.MAX_REPEATS:                    # kendi 3. tekrarı: takıldı → adım 8
+        outcome = take_step(step, context)                          # adım 3–7
+        if outcome == "accepted":
+            return context.answer(sql, "ok")
+        if outcome == "stopped" or early_handoff(context):         # takıldı → adım 8
             return None
-        elif earlier:                                               # aynı çağrı: önceki sonuç agent'a gider
-            result = guards.repeat_note(earlier)
-        elif step["tool"] == "search_values":
-            result = search_values.run(query, context)              # adım 3
-        elif step["tool"] == "execute_sql":
-            result = execute_sql.run(sql, context)                  # adım 4–6
-        else:
-            outcome = submit.run(sql, context)                      # adım 7
-            if outcome["done"]:
-                return context.answer(sql, "ok")
-            if outcome["handoff"]:
-                return None                                         # final check 2 kez geçmedi → adım 8
-            result = outcome["note"]                                # final check notu → adım 2
-
-        context.add(step, result)
-        if agent and 2 of the first 4 calls were wasted:
-            return None                                             # bocalıyor → adım 8
-        if agent and context.calls == 4 and no SQL returned rows:
-            return None                                             # ilerleme yok → adım 8
+        add_budget_note(context)
     return None                                                     # budget bitti → adım 8
+
+
+def take_step(step, context):                                       # tek bir tool call
+    earlier = guards.earlier_calls(step, context)
+    if step["error"]:                                               # tool call okunamadı: reddedilir
+        result = step["error"]
+    elif len(earlier) >= config.MAX_REPEATS:                        # kendi 3. tekrarı: takıldı
+        return "stopped"
+    elif earlier:                                                   # aynı çağrı: önceki sonuç döner
+        result = guards.repeat_note(earlier)
+    elif step["tool"] == "search_values":
+        result = search_values.run(query, context)                  # adım 3
+    elif step["tool"] == "execute_sql":
+        result = execute_sql.run(sql, context)                      # adım 4–6
+    else:
+        outcome = submit.run(sql, context)                          # adım 7
+        if outcome["done"]:
+            return "accepted"
+        if outcome["handoff"]:
+            return "stopped"                                        # ör. final check 2 kez geçmedi
+        result = outcome["note"]                                    # kontrolün notu → adım 2
+    context.add(step, result)
+    return None
 ```
 
 ## `config.py` sabitleri
@@ -130,8 +133,8 @@ def run_steps(context):
 ## Kayıt biçimleri
 
 **`results/<deney>.jsonl`** (her deney için bir dosya; tekrar koşular ayrı adlarla):
-- İlk satır deneyin kendisidir: deney adı, veri seti (`bird`), `--limit`, soru sayısı, bütün `config.py` değerleri ve prompt metinleri. `baseline.py`'nin dosyasında ise model, temperature ve prompt.
-- Sonraki her satır bir sorudur: `question_id`, `db_id`, `sql` (cevap), `label`, `answered_by` (agent / teacher), `error_message` (cevap yoksa nedeni; `no_answer`'da `answered_by` boştur), `correct`, `tool_calls`, `executions` (gerçek çalıştırma sayısı), `handoff_reason`, `teacher_stop_reason` (teacher'ın döngüsü neden durdu), `teacher_check` (agent'ın submit ettiği SQL, teacher'ın kararı `approved` ve SQL'in gerçekten doğru olup olmadığı `correct`), `teacher_error` (teacher'ın API'sine ulaşılamadıysa), `steps` (her tool call ve observation; `by` alanı agent mı teacher mı), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. Gold SQL hata verirse `gold_error`, model cevap vermezse `error` da yazılır.
+- İlk satır deneyin kendisidir: deney adı, veri seti (`bird`), `--limit`, soru sayısı, kodun git commit'i (`code`: commit ve commit edilmemiş değişiklik var mı), bütün `config.py` değerleri ve prompt metinleri. `baseline.py`'nin dosyasında ise model, temperature ve prompt.
+- Sonraki her satır bir sorudur: `question_id`, `db_id`, `sql` (cevap), `label`, `answered_by` (agent / teacher), `error_message` (cevap yoksa nedeni; `no_answer`'da `answered_by` boştur), `correct`, `tool_calls`, `executions` (gerçek çalıştırma sayısı), `handoff_reason`, `teacher_stop_reason` (teacher'ın döngüsü neden durdu), `teacher_check` (agent'ın submit ettiği SQL, teacher'ın kararı `approved`, gerekçesi `reason` ve SQL'in gerçekten doğru olup olmadığı `correct`), `teacher_error` (teacher'ın API'sine ulaşılamadıysa), `steps` (her tool call ve observation; `by` alanı agent mı teacher mı), `prompt_tokens`, `completion_tokens`, `cost`, `seconds`. Gold SQL hata verirse `gold_error`, model cevap vermezse `error` da yazılır.
 
 **`experience/log.jsonl`** (experience log; ileride agent'ın eğitim verisi, kayıtlar birikir; `agent/loop.py` her soru bitince yazar): her satır bir soru: zaman, split (`use` kullanımda, `dev` değerlendirmede; `correct` yalnızca `dev`'de dolu), veri seti, `question_id`, `db_id`, soru, evidence, gold SQL, cevap SQL'i, `label`, `correct`, `answered_by`, `handoff_reason`, `teacher_stop_reason`, `teacher_error`, model adları, `messages` (agent'ın gördüğü konuşmanın tamamı: sistem prompt'u, adım 1'in bağlamı, her tool call ve observation) ve `teacher_messages` (handoff olduysa teacher'ın sıfırdan başlayan konuşması, yoksa boş). Eğitime yalnızca `split = train` satırları girer.
 
@@ -141,7 +144,7 @@ def run_steps(context):
 Sistem küçük aşamalarla yazılır: her aşama tek bir parça ekler, `pytest tests/` ve tek bir gerçek soruyla (`run.py`) denenir, kullanıcı onaylayınca sonrakine geçilir. Kullanıcıya 2–3 cümleyle ne yapıldığı ve nasıl denendiği anlatılır.
 
 Akışın 8 adımı tamam. Sıradaki aşamalar:
-1. **Agent eğitimi:** experience log'la SFT → on-policy distillation → RL; yalnızca train kayıtlarıyla.
+1. **Agent eğitimi:** experience log'la; yöntem açık (SFT, distillation ya da RL, biri ya da birleşimi); yalnızca train kayıtlarıyla.
 2. **Yerel modeller:** makale rakamları için policy (Qwen3.5-4B) ve teacher yerelde.
 
 ## Diyagram

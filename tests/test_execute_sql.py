@@ -107,7 +107,6 @@ def test_exploration_timeout_is_short_and_a_submitted_query_gets_the_long_one(db
     context = Context("q", "", db)
     text = execute_sql.run("SELECT COUNT(*) FROM items", context)
     assert text.endswith(execute_sql.TIMEOUT_HINT)
-    assert execute_sql.sql_key("SELECT COUNT(*) FROM items") not in context.seen  # zaman aşımı sonuç sayılmaz
     assert execute_sql.run_sql("SELECT COUNT(*) FROM items", context, answer=True)["rows"] == [(150,)]
     # Keşifteki zaman aşımı cache'e girmedi: submit edilince uzun sınırla yeniden çalıştı.
     assert calls == [config.EXPLORE_TIMEOUT_SECONDS, config.ANSWER_TIMEOUT_SECONDS]
@@ -133,3 +132,8 @@ def test_double_quoted_text_with_a_dot_is_not_read_as_table_and_column(db):
     note = execute_sql.check(db, 'SELECT id FROM items WHERE city = "St. Louis"')
     assert "should this be a string literal in single-quotes?" in note
     assert "has the alias" not in note and "similar name" not in note
+
+
+def test_sql_key_keeps_spaces_inside_text_values():
+    assert execute_sql.sql_key("SELECT  1 ;") == execute_sql.sql_key("SELECT 1")
+    assert execute_sql.sql_key("SELECT 1 WHERE x = 'A B'") != execute_sql.sql_key("SELECT 1 WHERE x = 'A  B'")

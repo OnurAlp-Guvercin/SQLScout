@@ -22,7 +22,8 @@ def read_tool_call(reply, tools):
     step = {"tool": None, "args": {}, "id": None, "arguments": "", "text": reply["text"], "error": None}
     if not reply["tool_calls"]:
         step["error"] = ("Rejected: no valid tool call was found in your reply. Call exactly one of the tools, in the "
-                         "tool-call format.")
+                         "tool-call format. To give your final answer, call submit with the SQL query that answers the "
+                         "question.")
         return step
 
     call = reply["tool_calls"][0]
@@ -63,7 +64,7 @@ def read_tool_call(reply, tools):
 
 def extract_sql(text):
     """Modelin cevabındaki ilk ``` bloğunun içi (kapanmamışsa metnin sonuna kadar); blok yoksa cevabın tamamı. Temizlik
-    agent'ınkiyle aynıdır (clean_sql). Base (baseline.py) ve teacher'ın ilk denemesi (agent/loop.py) kullanır."""
+    agent'ınkiyle aynıdır (clean_sql). Base (baseline.py) kullanır."""
     start = text.find("```")
     return clean_sql(text[start:] if start >= 0 else text)
 

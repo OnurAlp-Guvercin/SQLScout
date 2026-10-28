@@ -74,7 +74,8 @@ def test_evaluation_scores_the_sql_the_teacher_checked(db, fake_model):
     question = {"question_id": 7, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",
                 "SQL": "SELECT COUNT(id) FROM items"}
     row = evaluate.run_one(question)
-    assert row["teacher_check"] == {"sql": "SELECT COUNT(*) FROM items", "approved": True, "correct": True}
+    assert row["teacher_check"] == {"sql": "SELECT COUNT(*) FROM items", "approved": True,
+                                    "reason": "It answers the question.", "correct": True}
 
 
 def test_teacher_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_model, monkeypatch):
@@ -85,7 +86,7 @@ def test_teacher_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_mod
 
     def teacher_says_no(messages, **kwargs):  # yalnızca agent'ın cevabına "no"
         if messages[0]["content"] == prompts.CHECK_ANSWER and "SELECT id FROM items" in messages[1]["content"]:
-            return text_reply("no")
+            return text_reply('{"reason": "It lists ids.", "correct": false}')
         return fake(messages, **kwargs)
 
     monkeypatch.setattr(llm, "chat", teacher_says_no)
@@ -93,4 +94,5 @@ def test_teacher_checked_sql_of_another_answer_is_scored_on_its_own(db, fake_mod
                 "SQL": "SELECT COUNT(id) FROM items"}
     row = evaluate.run_one(question)
     assert row["correct"] is True and row["answered_by"] == "teacher"
-    assert row["teacher_check"] == {"sql": "SELECT id FROM items", "approved": False, "correct": False}
+    assert row["teacher_check"] == {"sql": "SELECT id FROM items", "approved": False, "reason": "It lists ids.",
+                                    "correct": False}

@@ -33,7 +33,7 @@ svg, divs = [], []
 def lane_headers():
     heads = [
      ('policy','POLICY AGENT','Qwen3.5-0.8B · target Qwen3.5-4B',
-      '<b>Now:</b> untrained. <b>Later:</b> inside the harness, with the experience log: SFT → on-policy distillation → RL',
+      '<b>Now:</b> untrained. <b>Later:</b> inside the harness, with the experience log (method open)',
       '<b>Role:</b> decides which tool to call: searches values, tries SQL, looks at the result, fixes it'),
      ('harness','HARNESS (no LLM)','plain Python',
       'Context preparation, search_values, pre-check, turning the result into text, final check, the handoff decision',
@@ -124,11 +124,11 @@ node(822,900,324,104,'harness','Result','At most 20 rows · if empty or only 0/N
 arrow([(1440,792),(1440,950),(1150,950)],'k')
 arrow([(822,976),(394,976)],'b'); label(606,976,'real result','b')
 
-node(822,1036,324,128,'decision','Final check','Runs without error · the agent has seen its result (else it is shown) · no extra column · the teacher approves',shape='hex',tsize=18)
+node(822,1036,324,128,'decision','Final check','1. Runs without error · 2. the teacher finds it correct (JSON: decision and reason)',shape='hex',tsize=18)
 arrow([(390,1076),(818,1076)],'k'); label(606,1076,'submit','k')
 arrow([(822,1130),(394,1130)],'p'); label(606,1130,'failed → note · keep working','p')
 
-node(1574,1040,324,110,'teacher','Teacher','Does not see the agent\'s conversation: first writes a single SQL, then fixes it in its own loop with 10 tool calls',tsize=19)
+node(1574,1040,324,110,'teacher','Teacher','Does not see the agent\'s conversation: solves the question from scratch in the agent\'s loop with 10 tool calls',tsize=19)
 arrow([(1146,1076),(1570,1076)],'t',w=3); label(1360,1076,'failed twice or teacher says no','t')
 arrow([(1574,1126),(1150,1126)],'t',w=3); label(1360,1126,'the teacher\'s submit goes here too','t')
 
@@ -139,7 +139,7 @@ arrow([(984,1164),(984,1280),(1218,1280)],'p'); label(1100,1280,'passed','p')
 # experience log: evaluate.py writes the whole conversation after each question is scored; the agent is trained on it later
 node(1600,1500,270,100,'offline','Experience log','each question: whole conversation, answer, correct?',shape='cyl',tsize=18)
 arrow([(1522,1280),(1560,1280),(1560,1550),(1596,1550)],'g',dashed=True)
-node(70,1500,320,100,'policy','Agent training (later)','SFT → on-policy distillation → RL · train records only',dashed=True,tsize=18)
+node(70,1500,320,100,'policy','Agent training (later)','SFT, RL or distillation (on/off-policy, self); one or a mix · not decided yet · train records only',dashed=True,tsize=18)
 arrow([(1735,1600),(1735,1690),(230,1690),(230,1604)],'g',dashed=True); label(980,1690,'training data','g',dashed=True)
 
 # step badges

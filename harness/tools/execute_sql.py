@@ -21,8 +21,7 @@ def run(sql, context):
        sonuç cache'ten gelir. Keşifte zaman aşımında agent'a submit edilen sorgunun daha uzun çalışabileceği söylenir.
     3. format_result: sonuç metne çevrilir (en fazla 20 satır; boşsa ya da yalnızca 0/NULL ise search_values
        hatırlatması).
-    4. SQL context.seen'e eklenir: agent sonucunu gördü (submit buna bakar; zaman aşımı sonuç sayılmaz). Hatasız ve
-       dolu sonuç (has_rows) context.last_ok_sql olur (ilerleme sınırı için).
+    4. Hatasız ve dolu sonuç (has_rows) context.last_ok_sql olur (ilerleme sınırı için).
     Return: agent'a gidecek metin, ör. "Columns: superhero_name\n358 rows (first 20 shown):\n..." ya da pre-check notu."""
     note = check(context.db_path, sql)  # adım 5
     if note:
@@ -33,7 +32,6 @@ def run(sql, context):
         if sql_key(sql) in context.cache:  # submit edilmiş ve uzun sınırda da bitmemiş: yeniden submit önerilmez
             return text
         return text + " " + TIMEOUT_HINT
-    context.seen.add(sql_key(sql))
     if has_rows(result):
         context.last_ok_sql = sql
     return text
@@ -132,9 +130,12 @@ def run_sql(sql, context, answer=False):
 
 
 def sql_key(sql):
-    """Cache'in, tekrar guardrail'inin ve context.seen'in key'i: boşlukları sadeleştirilmiş, sondaki ';' atılmış SQL
-    metni. Ör. "SELECT  1;" ile "SELECT 1" aynı sorgudur."""
-    return " ".join(sql.strip().rstrip(";").split())
+    """Cache'in ve tekrar guardrail'inin key'i: boşlukları sadeleştirilmiş, sondaki ';' atılmış SQL metni. Ör.
+    "SELECT  1;" ile "SELECT 1" aynı sorgudur. Metin değerlerinin ('A  B') içindeki boşluklar olduğu gibi kalır."""
+    parts = re.split(r"('(?:[^']|'')*')", sql.strip().rstrip(";"))
+    for number in range(0, len(parts), 2):  # çift sıradakiler metin değeri değil
+        parts[number] = " ".join(parts[number].split())
+    return "".join(parts).strip()
 
 
 def has_rows(result):

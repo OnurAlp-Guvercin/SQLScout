@@ -13,7 +13,7 @@ def test_teacher_continues_after_forced_handoff(db, fake_model):
                 execute_reply(COUNT_SQL), submit_reply(COUNT_SQL)]  # teacher
     answer = loop.answer_question("How many items?", "", db)
     assert answer["handoff_reason"] == f"the final check failed {config.FINAL_CHECK_TRIES} times"
-    assert len(seen[2]) == 4  # teacher sistem prompt'u, adım 1'in bağlamı ve kendi ilk denemesiyle başladı
+    assert len(seen[2]) == 2  # teacher yalnızca sistem prompt'u ve adım 1'in bağlamıyla başladı
     assert answer["label"] == "ok" and answer["answered_by"] == "teacher" and answer["sql"] == COUNT_SQL
     assert answer["steps"][-1]["by"] == "teacher"
 
