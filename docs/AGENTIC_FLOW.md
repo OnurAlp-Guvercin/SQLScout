@@ -1,6 +1,6 @@
-# Predict – Gate – Settle (PGS)
+# SQLScout
 
-**Agent loop, final check ve handoff ile agentic Text-to-SQL.**
+**Agent loop, final check, handoff ve memory ile agentic Text-to-SQL.**
 
 Small model (küçük model) soruyu tool'larla çözer: değer arar, SQL dener, sonuca bakar, düzeltir. Small model cevap olarak seçtiği SQL'i `submit` eder; cevap bir final check'ten geçer ve dönen her cevap gerçekten çalıştırılmıştır. Small model ilerleyemez ya da takılırsa iş large model'e (büyük model) devredilir (handoff). Tasarımın dayandığı literatür [ARASTIRMA.md](ARASTIRMA.md), kodun yapısı [KOD_YAPISI.md](KOD_YAPISI.md) dosyasında.
 
@@ -8,7 +8,7 @@ Small model (küçük model) soruyu tool'larla çözer: değer arar, SQL dener, 
 
 **Kısaca:** soru → başlangıç bağlamı (1) → agent döngüsü: değer ara (3), SQL dene (4–6) → `submit` → final check (7) → cevap. Small model takılırsa large model devralır (8).
 
-![PGS akışı](PGS_akis_TR.png)
+![SQLScout akışı](SQLScout_akis_TR.png)
 
 | Renk | Bileşen |
 |---|---|

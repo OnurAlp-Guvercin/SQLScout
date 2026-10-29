@@ -31,7 +31,7 @@ def answer(question, model):
     row = {"question_id": question["question_id"], "db_id": question["db_id"], "sql": sql,
            "correct": correct,
            "prompt_tokens": reply["prompt_tokens"], "completion_tokens": reply["completion_tokens"],
-           "cost": reply["cost"] or 0, "seconds": round(time.monotonic() - start, 2)}
+           "cost": reply["cost"] or 0, "retries": reply.get("retries") or 0, "seconds": round(time.monotonic() - start, 2)}
     if not gold["ok"]:
         row["gold_error"] = gold["error"]
     return row

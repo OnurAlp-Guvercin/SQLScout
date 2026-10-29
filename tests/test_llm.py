@@ -1,6 +1,7 @@
 """agent/llm.py testleri (aşama 4). API'ye gerçek request atan test, API key yoksa atlanır."""
 
 import io
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -84,9 +85,30 @@ def test_dropped_connection_is_retried(monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
-    assert llm.post("http://test", {}, {}) == {"choices": []}
+    assert llm.post("http://test", {}, {}) == {"choices": [], "retries": 1}  # bir kez yeniden denendi
     assert len(attempts) == 2
 
+
+
+def test_an_answer_that_never_finishes_is_cut_and_retried(monkeypatch):
+    """Sağlayıcı bağlantıyı ara ara boşluk göndererek açık tutar ama cevabı hiç bitirmez: toplam süre sınırı keser."""
+    class Endless:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read1(self, size):
+            threading.Event().wait(0.01)  # time.sleep aşağıda kapalı (yeniden denemeden önceki bekleme)
+            return b" "
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout: Endless())
+    monkeypatch.setattr(config, "LLM_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(config, "LLM_RETRIES", 2)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="no complete answer"):
+        llm.post("http://test", {}, {})
 
 
 def test_wrong_key_stops_the_run(monkeypatch):

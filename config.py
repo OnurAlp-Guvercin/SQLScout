@@ -33,7 +33,8 @@ TEMPERATURE = 0  # small model ve large model her adımda en olası cevabı seç
 TOP_P = 0.8
 RETRY_TEMPERATURE = 0.7  # son çağrı reddedildiyse ya da tekrarsa sıradaki adım bununla örneklenir (0'da aynısı gelir)
 MAX_NEW_TOKENS = 1024
-LLM_TIMEOUT_SECONDS = 300
+LLM_TIMEOUT_SECONDS = 300  # bir isteğin toplam süresi; geçerse kesilip yeniden denenir
+API_PARALLEL = 4  # API'ye aynı anda giden en fazla istek (sağlayıcılar yoğunken kuyruk ve zaman aşımı azalır)
 LLM_RETRIES = 8  # geçici hatada bekleme 5, 10, 20, ... 320 sn
 
 # Agent loop (adım 2)

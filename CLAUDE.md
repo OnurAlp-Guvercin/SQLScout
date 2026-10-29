@@ -1,4 +1,4 @@
-# Predict – Gate – Settle (PGS)
+# SQLScout
 
 Agentic Text-to-SQL sistemi. ICML'e makale olarak gidecek ve ders projesi olarak sunulacak. Sunumu yapacak kullanıcı her parçayı zahmetsizce anlayabilmeli.
 
@@ -10,14 +10,14 @@ Small model (küçük model) soruyu tool'larla çözer: değer arar, SQL dener, 
 
 **Deneyler (kullanıcı kararı):** Kullanıcı "deneylere başla" derse [results/DENEYLER.md](results/DENEYLER.md)'deki deneyler çalıştırılır. Bir test için 10 soru yeter (`--limit 10`); kullanıcı istemedikçe büyük ölçüm alınmaz. Kod değişikliğinin doğruluğu testlerle ve tek bir gerçek soruyla (`run.py`) gösterilir. `evaluate.py` soruları aynı anda 8 tane çalıştırır (`EVAL_WORKERS`; API'de 4). Ölçüm çıktısı bir boruya (`| grep`) verilmez, doğrudan dosyaya yazılır: boruyu okuyan süreç kapanırsa evaluate.py çöker.
 
-BIRD dev `data/bird/dev/`, BIRD train'in soru–SQL dosyası `data/bird/train/train.json` altında (BIRD dışında veri seti yok); column profile'ları ve değer index'i `data/prepared/<db_id>/` altında (ilk çalıştırmada kurulur). Kod küçük aşamalarla yazılır ve her aşamadan sonra kullanıcının onayı beklenir. Depo: github.com/OnurAlp-Guvercin/foresql (push'u kullanıcı yapar; `.gitignore` `.env`, `data/`, `models/` ve `experience/`'ı dışarıda bırakır).
+BIRD dev `data/bird/dev/`, BIRD train'in soru–SQL dosyası `data/bird/train/train.json` altında (BIRD dışında veri seti yok); column profile'ları ve değer index'i `data/prepared/<db_id>/` altında (ilk çalıştırmada kurulur). Kod küçük aşamalarla yazılır ve her aşamadan sonra kullanıcının onayı beklenir. Depo: github.com/OnurAlp-Guvercin/SQLScout (push'u kullanıcı yapar; `.gitignore` `.env`, `data/`, `models/` ve `experience/`'ı dışarıda bırakır).
 
 ## Dokümanlar
 
 - [docs/AGENTIC_FLOW.md](docs/AGENTIC_FLOW.md): akış (8 adım), terim sözlüğü, tasarım kararları. **Bir adımı kodlamadan önce o adımı oku.**
 - [docs/KOD_YAPISI.md](docs/KOD_YAPISI.md): kod kuralları, dosya haritası, tool'lar, sabitler, kayıt biçimleri (aşağıda içeri aktarılıyor).
 - [docs/ARASTIRMA.md](docs/ARASTIRMA.md): literatür. Veri setleri 8. bölümde, hiperparametreler ve ödüller 9. bölümde; gerektiğinde oku.
-- `docs/en/` ve `README.md`: hoca ve okuyucular için İngilizce çeviriler; asıl dokümanlar Türkçedir. Türkçe bir doküman değişirse İngilizcesi de aynı değişiklikle güncellenir. İngilizce akış görseli `docs/diyagram/flow_diagram_en.py` → `docs/PGS_flow_EN.png`; Türkçe görsel değişirse o da değişir.
+- `docs/en/` ve `README.md`: hoca ve okuyucular için İngilizce çeviriler; asıl dokümanlar Türkçedir. Türkçe bir doküman değişirse İngilizcesi de aynı değişiklikle güncellenir. İngilizce akış görseli `docs/diyagram/flow_diagram_en.py` → `docs/SQLScout_flow_EN.png`; Türkçe görsel değişirse o da değişir.
 
 @docs/KOD_YAPISI.md
 

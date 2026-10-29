@@ -1,6 +1,6 @@
-# ForeSQL: Predict – Gate – Settle (PGS)
+# SQLScout
 
-**Agentic Text-to-SQL with an agent loop, a final check and handoff.**
+**Agentic Text-to-SQL with an agent loop, a final check, handoff and memory.**
 
 A small model turns a natural-language question into SQL by calling tools: it searches for values, runs SQL and looks at the real result. The small model submits the SQL query it chooses as the answer; it passes a **final check**, and every answer that is returned has actually been executed. If the small model makes no progress or gets stuck, the task is handed over to a larger large model (**handoff**).
 
@@ -8,7 +8,7 @@ The project is being developed as an ICML paper and a course project. The main b
 
 ## Architecture
 
-![PGS flow](docs/PGS_flow_EN.png)
+![SQLScout flow](docs/SQLScout_flow_EN.png)
 
 Each column is a component: 🟦 small model, 🟩 harness (plain Python, no LLM), 🟥 real database, 🩵 large model, 🟪 harness decision (final check). The numbers are the steps below.
 

@@ -1,4 +1,4 @@
-"""Generates the English flow diagram (docs/PGS_flow_EN.png).
+"""Generates the English flow diagram (docs/SQLScout_flow_EN.png).
 
 English mirror of akis_diyagrami.py (the Turkish original). Both must change together:
 same layout, coordinates, colors and step numbers; only the text differs.
@@ -7,7 +7,7 @@ Usage (from the project root):
   python3 docs/diyagram/flow_diagram_en.py
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
     --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,1930 \
-    --screenshot=docs/PGS_flow_EN.png "file://$PWD/docs/diyagram/flow_en.html"
+    --screenshot=docs/SQLScout_flow_EN.png "file://$PWD/docs/diyagram/flow_en.html"
 
 Boxes are drawn with node(), arrows with arrow(), arrow labels with label(). Coordinates are CSS pixels.
 If the diagram changes, keep it consistent with docs/AGENTIC_FLOW.md (including step numbers).
@@ -177,7 +177,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): agentic Text-to-SQL with an agent loop, a final check and handoff</div>
+<div class="title">SQLScout: agentic Text-to-SQL with an agent loop, a final check, handoff and memory</div>
 <div class="sub">What happens for a single user question. Each column is a component; numbers are the steps in AGENTIC_FLOW.md.</div>
 {''.join(divs)}
 </div></body></html>'''

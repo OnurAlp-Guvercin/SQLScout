@@ -1,8 +1,8 @@
-# Predict – Gate – Settle (PGS)
+# SQLScout
 
 Turkish original: [../AGENTIC_FLOW.md](../AGENTIC_FLOW.md)
 
-**Agentic Text-to-SQL with an agent loop, a final check and handoff.**
+**Agentic Text-to-SQL with an agent loop, a final check, handoff and memory.**
 
 A small model solves the question with tools: it searches for values, tries SQL, looks at the result and fixes it. The small model submits the SQL query it chooses as the answer; the answer passes a final check, and every answer that is returned has actually been executed. If the small model makes no progress or gets stuck, the task is handed over to a large model (handoff). The literature behind the design is in [RESEARCH.md](RESEARCH.md); the structure of the code is in [CODE_STRUCTURE.md](CODE_STRUCTURE.md).
 
@@ -10,7 +10,7 @@ A small model solves the question with tools: it searches for values, tries SQL,
 
 **In short:** question → initial context (1) → agent loop: search for values (3), try SQL (4–6) → `submit` → final check (7) → answer. If the small model gets stuck, the large model takes over (8).
 
-![PGS flow](../PGS_flow_EN.png)
+![SQLScout flow](../SQLScout_flow_EN.png)
 
 | Color | Component |
 |---|---|

@@ -9,7 +9,8 @@ import config
 def new_stats():
     """Yalnızca sonuç dosyasına yazılan sayaçlar; hiçbir kararı etkilemezler."""
     return {"executions": 0,  # gerçek çalıştırma sayısı
-            "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
+            "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0,
+            "retries": 0}  # modele giden isteklerin yeniden deneme sayısı (yavaş ya da hata veren API)
 
 
 @dataclass
@@ -60,7 +61,7 @@ class Context:
 
     def count_usage(self, reply):
         """Bir model isteğinin token'larını ve maliyetini sayaçlara ekler."""
-        for name in ("prompt_tokens", "completion_tokens", "cost"):
+        for name in ("prompt_tokens", "completion_tokens", "cost", "retries"):
             self.stats[name] += reply.get(name) or 0
 
     def answer(self, sql, label, answered_by="small_model", error_message=None):

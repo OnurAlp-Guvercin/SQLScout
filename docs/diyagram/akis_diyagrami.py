@@ -1,10 +1,10 @@
-"""Akış diyagramını (docs/PGS_akis_TR.png) üretir.
+"""Akış diyagramını (docs/SQLScout_akis_TR.png) üretir.
 
 Kullanım (proje kökünden):
   python3 docs/diyagram/akis_diyagrami.py
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu \
     --hide-scrollbars --force-device-scale-factor=2 --window-size=1960,1930 \
-    --screenshot=docs/PGS_akis_TR.png "file://$PWD/docs/diyagram/flow.html"
+    --screenshot=docs/SQLScout_akis_TR.png "file://$PWD/docs/diyagram/flow.html"
 
 Kutular node(), oklar arrow(), ok etiketleri label() ile çizilir. Koordinatlar CSS pikseli.
 Diyagram değişirse docs/AGENTIC_FLOW.md ile tutarlı tutulmalı (adım numaraları dahil).
@@ -174,7 +174,7 @@ svg{{position:absolute;left:0;top:0}}
 .idea{{position:absolute;background:#f5f5f5;border-left:5px solid #6a45b8;padding:14px 18px;font-size:17px;line-height:1.5;color:#222}}
 </style></head><body><div id="c">
 <svg width="{W}" height="{HGT}"><defs>{markers}</defs>{''.join(svg)}</svg>
-<div class="title">Predict – Gate – Settle (PGS): agent loop, final check ve handoff ile agentic Text-to-SQL</div>
+<div class="title">SQLScout: agent loop, final check, handoff ve memory ile agentic Text-to-SQL</div>
 <div class="sub">Tek bir kullanıcı sorusu için olanlar. Her sütun bir bileşendir; numaralar AGENTIC_FLOW.md'deki adımlardır.</div>
 {''.join(divs)}
 </div></body></html>'''

@@ -7,6 +7,7 @@ import http.client
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -14,6 +15,8 @@ import urllib.request
 from tokenizers import Tokenizer
 
 import config
+
+api_slots = threading.Semaphore(config.API_PARALLEL)  # API'ye aynı anda giden en fazla istek
 
 
 def chat(messages, temperature=None, tools=None, model=None):
@@ -42,6 +45,7 @@ def chat(messages, temperature=None, tools=None, model=None):
         "cost": usage.get("cost"),
         "seconds": round(time.monotonic() - start, 2),
         "provider": answer.get("provider"),
+        "retries": answer.get("retries", 0),
     }
 
 
@@ -71,8 +75,8 @@ def post(url, body, headers):
         last_attempt = attempt == config.LLM_RETRIES - 1
         request = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=config.LLM_TIMEOUT_SECONDS) as response:
-                answer = json.load(response)
+            answer = send(request, url)
+            answer["retries"] = attempt
             # OpenRouter sağlayıcının hatasını bazen 200 cevabının içinde verir (ör. 504 zaman aşımı).
             code = (answer.get("error") or {}).get("code")
             temporary = isinstance(code, int) and (code in (408, 429) or code >= 500)
@@ -90,6 +94,27 @@ def post(url, body, headers):
             if last_attempt:
                 raise RuntimeError(f"Modele ulaşılamadı ({url}): {error}") from error
         time.sleep(5 * 2 ** attempt)
+
+
+def send(request, url):
+    """İsteği gönderir, cevabı JSON olarak okur. API'ye (https) aynı anda en fazla API_PARALLEL istek gider."""
+    if url.startswith("https://"):
+        with api_slots:
+            return read_answer(request)
+    return read_answer(request)
+
+
+def read_answer(request):
+    """Cevap parça parça okunur; toplam süre LLM_TIMEOUT_SECONDS'ı geçerse TimeoutError (post yeniden dener). Sağlayıcı
+    bağlantıyı ara ara boşluk göndererek açık tutup hiç cevap vermeyebilir; tek başına socket zaman aşımı bunu kesmez."""
+    deadline = time.monotonic() + config.LLM_TIMEOUT_SECONDS
+    data = b""
+    with urllib.request.urlopen(request, timeout=config.LLM_TIMEOUT_SECONDS) as response:
+        while chunk := response.read1(65536):
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"no complete answer in {config.LLM_TIMEOUT_SECONDS} seconds")
+            data += chunk
+    return json.loads(data)
 
 
 def api_key():
