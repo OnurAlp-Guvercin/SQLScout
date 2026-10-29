@@ -33,7 +33,7 @@ This document describes how the code is organized, how it is written and in what
 | `db/sqlite_db.py` | Steps 5, 6 | `execute`, `explain` (below) |
 | `db/sqlite_schema.py` | Step 1 | `schema`, `profile`, `descriptions` (below). When moving to another database, a twin of these two files with the same functions is written |
 | `config.py` | | All constants (table below) |
-| `run.py` | | Runs a single question: `python run.py --db <sqlite path> "question" [--evidence "..."]` |
+| `run.py` | | Runs a single question; prints every step as it happens (in colour in a terminal: small model blue, large model turquoise, rejections red, acceptance green; `answer_question(show_step=...)`): `python run.py --db <sqlite path> "question" [--evidence "..."]` |
 | `evaluate.py` | | Runs BIRD dev, scores it with BIRD's rule (`run_gold`: the gold SQL once per question, 200 s; `is_correct`), has the split, `question_id` and whether the answer is correct added to the experience log line, also scores every SQL the large model checked (`large_model_checks`), and writes the result: `python evaluate.py --name <experiment> [--limit n] [--no-handoff] [--no-memory] [--large-model-agent]` → `results/<experiment>.jsonl` |
 | `baseline.py` | | The base: a tool-free single SQL (temperature 0), to compare the agentic system with; a question with an API error counts as wrong with `error`, and the run goes on: `python baseline.py --name <experiment> [--model <model>] [--limit n]` → `results/<experiment>.jsonl` |
 | `report.py` | | The summary of an experiment (`summary`, printed at the end of evaluate.py; including how accurate the large model's check was); a one-line table for several result files: `python report.py results/<experiment>*.jsonl` |

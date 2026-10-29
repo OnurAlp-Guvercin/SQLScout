@@ -43,6 +43,8 @@ class Context:
     large_model_checks: list = field(default_factory=list)  # small model'in her submit'ine large model'in kararı: {"sql", "approved", "reason"}
     large_model_error: str = None  # large model'in API'si birkaç denemeye rağmen cevap vermediyse hata; cevap yine de döner
 
+    show_step: object = None  # verilirse her adım olduğu anda bu fonksiyonla yazdırılır (run.py)
+
     # Ölçüm sayaçları (new_stats)
     stats: dict = field(default_factory=new_stats)
 
@@ -58,6 +60,8 @@ class Context:
             self.messages.append({"role": "user", "content": result})
         self.steps.append({"tool": step["tool"], "args": step["args"], "text": step["text"], "result": result,
                            "by": "large_model" if self.large_model else "small_model"})
+        if self.show_step:
+            self.show_step(len(self.steps), self.steps[-1])
 
     def count_usage(self, reply):
         """Bir model isteğinin token'larını ve maliyetini sayaçlara ekler."""

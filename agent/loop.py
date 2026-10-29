@@ -15,12 +15,13 @@ from harness.tools import execute_sql, search_values, submit
 log_lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır; log satırları birbirine karışmasın
 
 
-def answer_question(question, evidence, db_path, tags=None, score=None):
+def answer_question(question, evidence, db_path, tags=None, score=None, show_step=None):
     """tags: experience log satırına eklenecek bilgiler (ör. split, question_id). score: cevabı doğru SQL'le puanlayan
     fonksiyon; yalnızca değerlendirmede verilir ve cevap kesinleştikten sonra çağrılır, agent onu hiç görmez.
+    show_step: verilirse her adım olduğu anda onunla yazdırılır (run.py).
     Return: sonuç (Context.answer); correct, score verildiyse cevabın doğru olup olmadığı, yoksa None."""
     tags = tags or {}
-    context = Context(question, evidence, db_path)
+    context = Context(question, evidence, db_path, show_step=show_step)
     examples = memory.similar(question, evidence, tags.get("run")) if config.MEMORY else []  # benzer çözülmüş sorular
     context.messages = [
         {"role": "system", "content": prompts.AGENT},

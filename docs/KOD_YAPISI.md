@@ -31,7 +31,7 @@ Bu doküman kodun nasıl düzenlendiğini, nasıl yazılacağını ve hangi sır
 | `db/sqlite_db.py` | Adım 5, 6 | `execute`, `explain` (aşağıda) |
 | `db/sqlite_schema.py` | Adım 1 | `schema`, `profile`, `descriptions` (aşağıda). Başka bir veritabanına geçince bu iki dosyanın aynı fonksiyonlarla bir eşi yazılır |
 | `config.py` | | Tüm sabitler (aşağıdaki tablo) |
-| `run.py` | | Tek bir soruyu çalıştırır: `python run.py --db <sqlite yolu> "soru" [--evidence "..."]` |
+| `run.py` | | Tek bir soruyu çalıştırır; her adımı olduğu anda yazar (terminalde renkli: small model mavi, large model turkuaz, ret kırmızı, kabul yeşil; `answer_question(show_step=...)`): `python run.py --db <sqlite yolu> "soru" [--evidence "..."]` |
 | `evaluate.py` | | BIRD dev'i çalıştırır, BIRD kuralıyla puanlar (`run_gold`: gold SQL soru başına bir kez, 200 sn; `is_correct`), experience log satırına split, `question_id` ve cevabın doğru olup olmadığını ekletir, large model'in kontrol ettiği her SQL'i de puanlar (`large_model_checks`), sonucu yazar: `python evaluate.py --name <deney> [--limit n] [--no-handoff] [--no-memory] [--large-model-agent]` → `results/<deney>.jsonl` |
 | `baseline.py` | | Base: tool'suz tek SQL (temperature 0), agentic sistemle karşılaştırmak için; API hatası olan soru `error` ile yanlış sayılır, koşu sürer: `python baseline.py --name <deney> [--model <model>] [--limit n]` → `results/<deney>.jsonl` |
 | `report.py` | | Bir deneyin özeti (`summary`, evaluate.py sonunda yazar; large model kontrolünün isabeti de); birden çok sonuç dosyası için tek satırlık tablo: `python report.py results/<deney>*.jsonl` |
