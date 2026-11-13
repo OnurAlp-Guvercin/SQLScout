@@ -17,11 +17,12 @@ import config
 import report
 from agent import loop, prompts
 from db import sqlite_db
+from harness import memory
 
 
 def load_questions(split="dev"):
     """BIRD soruları (dev ya da train); her soru kendi veritabanının yolunu (db_path) da taşır. Train'in question_id'sini
-    training/clean_bird.py yazar (orijinal dosyadaki sırası)."""
+    training/clean_bird.py yazar (dosyadaki sırası)."""
     with open(bird_dir(split) / f"{split}.json") as file:
         questions = json.load(file)
     for question in questions:
@@ -63,7 +64,8 @@ def is_correct(db_path, sql, gold):
 def run_one(question, run=None, split="dev"):
     """Bir soruyu cevaplar ve puanlar; sonuç dosyasının bir satırını return eder. Gold SQL yalnızca puanlamada
     kullanılır: agent'a gitmez, experience log'a not olarak yazılır. run: koşunun adı (--name) ve başlama zamanı;
-    memory'de yalnızca bu koşunun soruları örnek olur. split: experience log'a yazılır; eğitime yalnızca train girer."""
+    memory'de train koşularının ve bu koşunun soruları örnek olur. split: experience log'a yazılır; eğitime yalnızca
+    train girer."""
     start = time.monotonic()
     row = {"question_id": question["question_id"], "db_id": question["db_id"]}
     gold = run_gold(question)
@@ -96,7 +98,17 @@ def experiment_header(args, question_count):
     prompt_texts = {name: value for name, value in vars(prompts).items() if name.isupper()}
     return {"experiment": args.name, "dataset": "bird", "split": args.split,
             "limit": args.limit, "question_count": question_count, "code": code_version(), "config": settings,
-            "prompts": prompt_texts}
+            "prompts": prompt_texts, "memory_rows": memory_rows()}
+
+
+def memory_rows():
+    """Koşu başlarken memory'deki satır sayısı, split başına (ör. {"train": 812}). Memory koşular boyunca dolduğu için
+    sonuç, koşudan önce memory'de ne olduğuna bağlıdır; tekrar üretmek için bu da yazılır."""
+    counts = {}
+    if config.MEMORY:
+        for row in memory.read_rows():
+            counts[row["split"]] = counts.get(row["split"], 0) + 1
+    return counts
 
 
 def code_version():

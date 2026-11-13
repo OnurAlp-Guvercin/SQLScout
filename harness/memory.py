@@ -1,11 +1,10 @@
-"""Adım 1: memory. Daha önce doğru çözülmüş sorular (soru, evidence, SQL) embedding'leriyle bir SQLite dosyasında
-(config.MEMORY_DB) durur; yeni bir soruya en benzer olanlar adım 1'in bağlamına eklenir.
-BIRD train'i eklemek için: python -m harness.memory <train.json>"""
+"""Adım 1: memory. Sistemin kendi koşularında çözdüğü sorular (soru, evidence, SQL) her soru bitince embedding'leriyle
+bir SQLite dosyasına (config.MEMORY_DB) yazılır; yeni bir soruya en benzer, doğru çözülmüş olanlar adım 1'in bağlamına
+eklenir. Memory boş başlar; içine dışarıdan (ör. BIRD'ün gold SQL'leri) hiçbir şey konmaz."""
 
 import functools
 import json
 import sqlite3
-import sys
 import threading
 
 import mlx.core as mx
@@ -20,7 +19,7 @@ lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır: emb
 
 def similar(question, evidence, run):
     """Soruya en benzer, aday olan (is_candidate) en fazla MEMORY_EXAMPLES satır; benzerliği MEMORY_MIN_SIMILARITY'nin
-    altındakiler gelmez. Sorunun kendisi örnek olmaz: train sorusu çözülürken onun gold SQL'i de bellektedir.
+    altındakiler gelmez. Sorunun kendisi örnek olmaz: aynı soru daha önceki bir koşuda çözülmüş olabilir.
     Return: [{"question", "evidence", "sql"}], en benzeri başta."""
     rows = [row for row in read_rows() if is_candidate(row, run) and row["question"] != question]
     if not rows:
@@ -96,21 +95,3 @@ def embedding_model():
     model = qwen3.Model(qwen3.ModelArgs.from_dict(json.loads((folder / "config.json").read_text())))
     model.model.load_weights(list(mx.load(str(folder / "model.safetensors")).items()))  # ağırlıklar "model." öneksiz
     return model, Tokenizer.from_file(str(folder / "tokenizer.json"))
-
-
-def add_bird_train(path):
-    """BIRD train'in gold soru–SQL çiftleri: split = train, correct = True. Bellekte train varsa bir şey yapmaz."""
-    if any(row["split"] == "train" for row in read_rows()):
-        print("Train zaten bellekte.")
-        return
-    rows = []
-    for item in json.load(open(path)):
-        rows.append({"question": item["question"], "evidence": item["evidence"], "sql": item["SQL"],
-                     "split": "train", "run": None, "correct": True, "label": None})
-    for start in range(0, len(rows), 256):  # parça parça: ilerleme görünsün
-        add(rows[start:start + 256])
-        print(f"{min(start + 256, len(rows))}/{len(rows)}", flush=True)
-
-
-if __name__ == "__main__":
-    add_bird_train(sys.argv[1])

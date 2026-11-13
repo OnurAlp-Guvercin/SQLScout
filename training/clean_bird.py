@@ -1,11 +1,9 @@
 """Gold temizliği (eğitimden önce, bir kez): train ve val (BIRD dev) sorularının gold SQL'i çalıştırılır. Hata veren,
-zaman aşımına uğrayan ya da boş (yalnızca 0/NULL) dönen sorular silinir ve json dosyasının üzerine yazılır. Orijinal
-dosya bir kez <split>_original.json olarak saklanır; script her çalıştığında orijinalden başlar. Train'in question_id'si
-yoktur; orijinal dosyadaki sırası question_id olur.
+zaman aşımına uğrayan ya da boş (yalnızca 0/NULL) dönen sorular silinir ve json dosyasının üzerine yazılır. Train'in
+question_id'si yoktur; dosyadaki sırası question_id olur. Temiz dosyada yeniden çalıştırılırsa bir şey değişmez.
 Kullanım: python -m training.clean_bird"""
 
 import json
-import shutil
 from concurrent.futures import ThreadPoolExecutor
 
 import config
@@ -23,10 +21,7 @@ def gold_works(question, split):
 
 def clean(split):
     path = evaluate.bird_dir(split) / f"{split}.json"
-    original = path.with_name(f"{split}_original.json")
-    if not original.exists():
-        shutil.copy(path, original)
-    questions = json.loads(original.read_text())
+    questions = json.loads(path.read_text())
     for number, question in enumerate(questions):
         question.setdefault("question_id", number)
     with ThreadPoolExecutor(config.EVAL_WORKERS) as pool:

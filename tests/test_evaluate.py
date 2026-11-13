@@ -7,6 +7,7 @@ import pytest
 import config
 import evaluate
 from agent import llm, prompts
+from harness import memory
 from tests.fakes import execute_reply, submit_reply, text_reply
 
 
@@ -112,3 +113,9 @@ def test_a_train_question_is_logged_as_train(db, fake_model):
 def test_train_and_dev_databases_are_in_their_own_folders():
     assert evaluate.database_path("shop", "train") == config.BIRD_TRAIN_DIR / "train_databases" / "shop" / "shop.sqlite"
     assert evaluate.database_path("shop") == config.BIRD_DEV_DIR / "dev_databases" / "shop" / "shop.sqlite"
+
+
+def test_the_header_records_what_the_memory_held_when_the_run_started():
+    memory.add([{"question": "How many items?", "evidence": "", "sql": "SELECT 1", "split": "train", "run": "r",
+                 "correct": True, "label": "ok"}])
+    assert evaluate.memory_rows() == {"train": 1}

@@ -2,7 +2,7 @@
 
 Kullanıcı "deneylere başla" derse bu altı deney çalıştırılır. Kullanıcıya yalnızca soru sayısı sorulur (`n`, ör. 20). Aynı `n` hep aynı soruları seçer, yani altı deney aynı sorularda karşılaştırılır.
 
-**Önce:** Yerel model sunucusu açık olmalı (`mlx_lm.server`, komut CLAUDE.md'de). Memory'de BIRD train olmalı (`experience/memory.sqlite`; yoksa bir kez `python -m harness.memory data/bird/train/train.json`). Komutlar proje kökünden, sanal ortamda ve **sırayla** çalışır; aynı anda çalışırsa API 429 hatası verir. Çıktı bir boruya verilmez, `results/`'a yazılır. Aynı adlı eski sonuçların üzerine yazılır.
+**Önce:** Yerel model sunucusu açık olmalı (`mlx_lm.server`, komut CLAUDE.md'de). Komutlar proje kökünden, sanal ortamda ve **sırayla** çalışır; aynı anda çalışırsa API 429 hatası verir. Çıktı bir boruya verilmez, `results/`'a yazılır. Aynı adlı eski sonuçların üzerine yazılır.
 
 | Deney | Ne ölçer | Komut |
 |---|---|---|

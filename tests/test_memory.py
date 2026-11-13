@@ -24,7 +24,7 @@ def test_most_similar_questions_come_first():
 
 
 def test_the_question_itself_is_not_an_example():
-    """Train sorusu çözülürken onun gold SQL'i de bellektedir; agent cevabı oradan kopyalamasın."""
+    """Aynı soru daha önceki bir koşuda çözülmüş olabilir; agent cevabı oradan kopyalamasın."""
     memory.add([row("How many items are in Boston?", "SELECT 1"), row("How many items are in Chicago?", "SELECT 3")])
     found = memory.similar("How many items are in Boston?", "", None)
     assert [example["sql"] for example in found] == ["SELECT 3"]
@@ -91,14 +91,6 @@ def test_without_memory_nothing_is_read_or_written(db, fake_model, monkeypatch):
     loop.answer_question("How many items are there?", "", db)
     assert "Similar questions" not in seen[0][1]["content"]
     assert len(memory.read_rows()) == 1  # yalnızca elle eklenen satır
-
-
-def test_bird_train_is_added_as_correct_examples(tmp_path):
-    path = tmp_path / "train.json"
-    path.write_text(json.dumps([{"question": "How many items?", "evidence": "", "SQL": COUNT_SQL, "db_id": "shop"}]))
-    memory.add_bird_train(path)
-    rows = memory.read_rows()
-    assert len(rows) == 1 and rows[0]["split"] == "train" and rows[0]["correct"] == 1 and rows[0]["sql"] == COUNT_SQL
 
 
 def test_an_answer_accepted_without_a_check_is_not_an_example(db, fake_model, monkeypatch):

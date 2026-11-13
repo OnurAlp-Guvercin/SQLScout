@@ -33,8 +33,7 @@ BIRD dev `data/bird/dev/`, BIRD train `data/bird/train/` (`train.json` ve `train
 | `python evaluate.py --name <deney> [--split train] [--limit n] [--no-handoff] [--no-memory] [--large-model-agent]` | BIRD dev'i (`--split train`: eğitim verisi toplamak için train'i; `--limit n`: soruların sabit bir örneklemi; `--no-handoff`: ablation, large model yalnızca kontrol eder; `--no-memory`: ablation, bağlama benzer çözülmüş sorular eklenmez; `--large-model-agent`: agent de 9B, handoff'suz) çalıştırıp puanlar, `results/<deney>.jsonl`'a yazar; doğruluk, süre ve maliyeti özetler |
 | `python baseline.py --name <deney> [--model <model>] [--limit n]` | Base: aynı sorularda tool'suz tek SQL. Large model verilirse API'ye gider |
 | `python report.py results/<deney>*.jsonl` | Birden çok sonuç dosyasını (ör. tekrar koşular) tek tabloda özetler |
-| `python -m training.clean_bird` | Gold temizliği, eğitimden önce bir kez: train ve dev'de gold SQL'i çalışmayan ya da boş dönen soruları siler (orijinali `<split>_original.json`) |
-| `python -m harness.memory <train.json>` | BIRD train'in gold soru–SQL'lerini memory'ye (`experience/memory.sqlite`) ekler; bir kez çalıştırılır |
+| `python -m training.clean_bird` | Gold temizliği, eğitimden önce bir kez: train ve dev'de gold SQL'i çalışmayan ya da boş dönen soruları siler |
 | `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` | Bir sorunun başlangıç bağlamını (adım 1) yazdırır |
 | `python -m agent.llm "soru"` | Modele tek bir soru sorar; cevabı, sağlayıcıyı ve hızı yazar |
 | `pytest tests/` | Testler. `test_api_answers` API'ye gerçek bir istek atar; atlamak için `--deselect tests/test_llm.py::test_api_answers` |

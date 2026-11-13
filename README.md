@@ -75,13 +75,14 @@ uv pip install -r requirements.txt
 
 # Data (the data/ folder is not in the repository)
 #   BIRD dev: https://bird-bench.github.io → data/bird/dev/ (dev.json, dev_databases/)
+#   BIRD train (to collect training data): https://bird-bench.oss-cn-beijing.aliyuncs.com/train.zip
+#     → data/bird/train/ (train.json, train_databases/; train_databases.zip inside train.zip is unzipped there)
+# Gold cleaning, once: removes questions whose gold SQL errors or returns no rows
+python -m training.clean_bird
 
 # Local models (the models/ folder is not in the repository)
 hf download Qwen/Qwen3.5-0.8B --local-dir models/Qwen3.5-0.8B
 hf download Qwen/Qwen3-Embedding-0.6B --local-dir models/Qwen3-Embedding-0.6B
-
-# Memory: add BIRD train's gold question–SQL pairs once (only train/train.json from BIRD's train.zip is needed)
-python -m harness.memory data/bird/train/train.json
 
 # Local model server for the small model (in a separate terminal); the large model uses OPENROUTER_API_KEY from .env
 mlx_lm.server --model models/Qwen3.5-0.8B --port 8080 --chat-template-args '{"enable_thinking":false}'
