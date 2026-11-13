@@ -6,6 +6,7 @@ from pathlib import Path
 # Yollar
 PROJECT_DIR = Path(__file__).parent
 BIRD_DEV_DIR = PROJECT_DIR / "data" / "bird" / "dev"
+BIRD_TRAIN_DIR = PROJECT_DIR / "data" / "bird" / "train"  # evaluate.py --split train: eğitim verisi toplamak için
 PREPARED_DIR = PROJECT_DIR / "data" / "prepared"
 RESULTS_DIR = PROJECT_DIR / "results"
 

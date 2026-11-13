@@ -96,3 +96,19 @@ def test_large_model_checked_sql_of_another_answer_is_scored_on_its_own(db, fake
     assert row["correct"] is True and row["answered_by"] == "large_model"
     assert row["large_model_checks"] == [{"sql": "SELECT id FROM items", "approved": False, "reason": "It lists ids.",
                                       "correct": False}]
+
+
+def test_a_train_question_is_logged_as_train(db, fake_model):
+    """--split train: eğitim verisi toplanır; experience log'da split = train olur."""
+    replies, _ = fake_model
+    replies += [execute_reply("SELECT COUNT(*) FROM items"), submit_reply("SELECT COUNT(*) FROM items")]
+    question = {"question_id": 3, "db_id": "shop", "db_path": db, "question": "How many items?", "evidence": "",
+                "SQL": "SELECT COUNT(id) FROM items"}
+    evaluate.run_one(question, split="train")
+    record = json.loads(config.EXPERIENCE_LOG.read_text())
+    assert record["split"] == "train" and record["question_id"] == 3 and record["correct"] is True
+
+
+def test_train_and_dev_databases_are_in_their_own_folders():
+    assert evaluate.database_path("shop", "train") == config.BIRD_TRAIN_DIR / "train_databases" / "shop" / "shop.sqlite"
+    assert evaluate.database_path("shop") == config.BIRD_DEV_DIR / "dev_databases" / "shop" / "shop.sqlite"

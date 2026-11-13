@@ -174,6 +174,7 @@ def test_every_question_is_written_to_the_experience_log(db, fake_model):
     assert record["split"] == "use" and record["correct"] is None and record["label"] == "ok"
     assert record["messages"][1]["content"].endswith("Question: How many items?")  # adım 1'in bağlamı
     assert record["messages"][-1]["content"] == "Accepted."
+    assert record["tools"] == prompts.TOOLS  # eğitimde konuşmanın yanında modele sunulan tool tanımları
 
 
 def test_agent_is_reminded_to_submit_when_the_budget_is_almost_gone(db, fake_model):

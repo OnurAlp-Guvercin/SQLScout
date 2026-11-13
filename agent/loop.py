@@ -61,15 +61,16 @@ def remember(context, result, tags):
 
 def write_experience(context, result, tags):
     """Experience log: her soru bir satır, nereden çalıştırılırsa çalıştırılsın (run.py, evaluate.py, kullanım).
-    Small model'in gördüğü konuşmanın tamamı (messages), handoff olduysa large model'inki de (large_model_messages) ve cevap; ileride
-    agent'ın eğitim verisi.
+    Small model'in gördüğü konuşmanın tamamı (messages), handoff olduysa large model'inki de (large_model_messages), modele
+    sunulan tool tanımları (tools) ve cevap; ileride agent'ın eğitim verisi.
     correct yalnızca değerlendirmede dolu; kullanımda doğru SQL olmadığı için boş kalır."""
     record = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "split": "use", **tags, "db_id": Path(context.db_path).stem,
               "question": context.question, "evidence": context.evidence, "sql": result["sql"], "label": result["label"],
               "correct": result["correct"], "answered_by": result["answered_by"],
               "handoff_reason": result["handoff_reason"], "large_model_stop_reason": result["large_model_stop_reason"],
               "large_model_error": result["large_model_error"], "small_model": config.SMALL_MODEL,
-              "large_model": config.LARGE_MODEL, "handoff": config.HANDOFF, "messages": context.small_model_messages or context.messages,
+              "large_model": config.LARGE_MODEL, "handoff": config.HANDOFF, "tools": prompts.TOOLS,
+              "messages": context.small_model_messages or context.messages,
               "large_model_messages": context.messages if context.small_model_messages else None}
     with log_lock:
         config.EXPERIENCE_LOG.parent.mkdir(parents=True, exist_ok=True)

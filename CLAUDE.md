@@ -10,13 +10,14 @@ Small model (küçük model) soruyu tool'larla çözer: değer arar, SQL dener, 
 
 **Deneyler (kullanıcı kararı):** Kullanıcı "deneylere başla" derse [results/DENEYLER.md](results/DENEYLER.md)'deki deneyler çalıştırılır. Bir test için 10 soru yeter (`--limit 10`); kullanıcı istemedikçe büyük ölçüm alınmaz. Kod değişikliğinin doğruluğu testlerle ve tek bir gerçek soruyla (`run.py`) gösterilir. `evaluate.py` soruları aynı anda 8 tane çalıştırır (`EVAL_WORKERS`; API'de 4). Ölçüm çıktısı bir boruya (`| grep`) verilmez, doğrudan dosyaya yazılır: boruyu okuyan süreç kapanırsa evaluate.py çöker.
 
-BIRD dev `data/bird/dev/`, BIRD train'in soru–SQL dosyası `data/bird/train/train.json` altında (BIRD dışında veri seti yok); column profile'ları ve değer index'i `data/prepared/<db_id>/` altında (ilk çalıştırmada kurulur). Kod küçük aşamalarla yazılır ve her aşamadan sonra kullanıcının onayı beklenir. Depo: github.com/OnurAlp-Guvercin/SQLScout (push'u kullanıcı yapar; `.gitignore` `.env`, `data/`, `models/` ve `experience/`'ı dışarıda bırakır).
+BIRD dev `data/bird/dev/`, BIRD train `data/bird/train/` (`train.json` ve `train_databases/`) altında (BIRD dışında veri seti yok); column profile'ları ve değer index'i `data/prepared/<db_id>/` altında (ilk çalıştırmada kurulur). Kod küçük aşamalarla yazılır ve her aşamadan sonra kullanıcının onayı beklenir. Depo: github.com/OnurAlp-Guvercin/SQLScout (push'u kullanıcı yapar; `.gitignore` `.env`, `data/`, `models/` ve `experience/`'ı dışarıda bırakır).
 
 ## Dokümanlar
 
 - [docs/AGENTIC_FLOW.md](docs/AGENTIC_FLOW.md): akış (8 adım), terim sözlüğü, tasarım kararları. **Bir adımı kodlamadan önce o adımı oku.**
 - [docs/KOD_YAPISI.md](docs/KOD_YAPISI.md): kod kuralları, dosya haritası, tool'lar, sabitler, kayıt biçimleri (aşağıda içeri aktarılıyor).
 - [docs/ARASTIRMA.md](docs/ARASTIRMA.md): literatür. Veri setleri 8. bölümde, hiperparametreler ve ödüller 9. bölümde; gerektiğinde oku.
+- [training/post_training/](training/post_training/README.md): post-training literatürü (SFT, RL, distillation reçeteleri), her bölüm ayrı dosyada; eğitim aşamasında oku.
 - `docs/en/` ve `README.md`: hoca ve okuyucular için İngilizce çeviriler; asıl dokümanlar Türkçedir. Türkçe bir doküman değişirse İngilizcesi de aynı değişiklikle güncellenir. İngilizce akış görseli `docs/diyagram/flow_diagram_en.py` → `docs/SQLScout_flow_EN.png`; Türkçe görsel değişirse o da değişir.
 
 @docs/KOD_YAPISI.md
@@ -29,9 +30,10 @@ BIRD dev `data/bird/dev/`, BIRD train'in soru–SQL dosyası `data/bird/train/tr
 | `uv pip install -r requirements.txt` | Bağımlılıklar |
 | `mlx_lm.server --model models/Qwen3.5-0.8B --port 8080 --chat-template-args '{"enable_thinking":false}'` | Yerel model sunucusu (small model buraya gider; large model OpenRouter API'sine). Kullanıcı ayrı bir terminalde, proje kökünden başlatır. `--model` yolu `config.SMALL_MODEL` ile aynı olmalı; değilse sunucu modeli Hugging Face'ten indirmeye çalışır. Model dosyaları `models/`'da (git'e girmez); yoksa `hf download Qwen/Qwen3.5-0.8B --local-dir models/Qwen3.5-0.8B` (Xet takılırsa başına `HF_HUB_DISABLE_XET=1`) |
 | `python run.py --db <sqlite yolu> "soru" [--evidence "..."]` | Tek bir soruyu çalıştırır: agent'ın her adımını, cevabı ve cevabın gerçek sonucunu yazar |
-| `python evaluate.py --name <deney> [--limit n] [--no-handoff] [--no-memory] [--large-model-agent]` | BIRD dev'i (`--limit n`: soruların sabit bir örneklemi; `--no-handoff`: ablation, large model yalnızca kontrol eder; `--no-memory`: ablation, bağlama benzer çözülmüş sorular eklenmez; `--large-model-agent`: agent de 9B, handoff'suz) çalıştırıp puanlar, `results/<deney>.jsonl`'a yazar; doğruluk, süre ve maliyeti özetler |
+| `python evaluate.py --name <deney> [--split train] [--limit n] [--no-handoff] [--no-memory] [--large-model-agent]` | BIRD dev'i (`--split train`: eğitim verisi toplamak için train'i; `--limit n`: soruların sabit bir örneklemi; `--no-handoff`: ablation, large model yalnızca kontrol eder; `--no-memory`: ablation, bağlama benzer çözülmüş sorular eklenmez; `--large-model-agent`: agent de 9B, handoff'suz) çalıştırıp puanlar, `results/<deney>.jsonl`'a yazar; doğruluk, süre ve maliyeti özetler |
 | `python baseline.py --name <deney> [--model <model>] [--limit n]` | Base: aynı sorularda tool'suz tek SQL. Large model verilirse API'ye gider |
 | `python report.py results/<deney>*.jsonl` | Birden çok sonuç dosyasını (ör. tekrar koşular) tek tabloda özetler |
+| `python -m training.clean_bird` | Gold temizliği, eğitimden önce bir kez: train ve dev'de gold SQL'i çalışmayan ya da boş dönen soruları siler (orijinali `<split>_original.json`) |
 | `python -m harness.memory <train.json>` | BIRD train'in gold soru–SQL'lerini memory'ye (`experience/memory.sqlite`) ekler; bir kez çalıştırılır |
 | `python -m harness.prepare <sqlite yolu> "soru" ["evidence"]` | Bir sorunun başlangıç bağlamını (adım 1) yazdırır |
 | `python -m agent.llm "soru"` | Modele tek bir soru sorar; cevabı, sağlayıcıyı ve hızı yazar |

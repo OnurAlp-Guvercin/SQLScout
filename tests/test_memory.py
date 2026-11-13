@@ -19,13 +19,20 @@ def row(question, sql="SELECT 1", split="train", run=None, correct=True, label=N
 def test_most_similar_questions_come_first():
     memory.add([row("How many items are in Boston?", "SELECT 1"), row("List the names of the stores", "SELECT 2"),
                 row("How many items are in Chicago?", "SELECT 3")])
-    found = memory.similar("How many items are in Boston?", "", None)
+    found = memory.similar("How many items are there in Boston?", "", None)
     assert [example["sql"] for example in found] == ["SELECT 1", "SELECT 3"]  # alakasız soru eşiğin altında kaldı
+
+
+def test_the_question_itself_is_not_an_example():
+    """Train sorusu çözülürken onun gold SQL'i de bellektedir; agent cevabı oradan kopyalamasın."""
+    memory.add([row("How many items are in Boston?", "SELECT 1"), row("How many items are in Chicago?", "SELECT 3")])
+    found = memory.similar("How many items are in Boston?", "", None)
+    assert [example["sql"] for example in found] == ["SELECT 3"]
 
 
 def test_at_most_the_configured_number_of_examples():
     memory.add([row("How many items are in Boston?") for _ in range(config.MEMORY_EXAMPLES + 2)])
-    assert len(memory.similar("How many items are in Boston?", "", None)) == config.MEMORY_EXAMPLES
+    assert len(memory.similar("How many items are there in Boston?", "", None)) == config.MEMORY_EXAMPLES
 
 
 def test_candidate_rules():
@@ -71,7 +78,7 @@ def test_the_reviewer_does_not_see_the_examples(db, fake_model, monkeypatch):
         return fake(messages, **kwargs)
 
     monkeypatch.setattr(llm, "chat", recording)
-    loop.answer_question("How many items are there?", "", db)
+    loop.answer_question("How many items are there in total?", "", db)
     assert "Similar questions" in seen[0][1]["content"]  # small model örneği gördü
     assert reviews and "Similar questions" not in reviews[0]  # kontrol eden large model görmedi
 
@@ -108,9 +115,9 @@ def test_an_answer_accepted_without_a_check_is_not_an_example(db, fake_model, mo
     monkeypatch.setattr(llm, "chat", large_model_down)
     loop.answer_question("How many items are there?", "", db)
     assert [row["label"] for row in memory.read_rows()] == ["unchecked"]
-    assert memory.similar("How many items are there?", "", None) == []
+    assert memory.similar("How many items are there in total?", "", None) == []
 
 
 def test_missing_evidence_does_not_break_the_memory():
     memory.add([row("How many items are there?") | {"evidence": None}])
-    assert len(memory.similar("How many items are there?", None, None)) == 1
+    assert len(memory.similar("How many items are there in total?", None, None)) == 1

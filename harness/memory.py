@@ -20,8 +20,9 @@ lock = threading.Lock()  # evaluate.py soruları aynı anda çalıştırır: emb
 
 def similar(question, evidence, run):
     """Soruya en benzer, aday olan (is_candidate) en fazla MEMORY_EXAMPLES satır; benzerliği MEMORY_MIN_SIMILARITY'nin
-    altındakiler gelmez. Return: [{"question", "evidence", "sql"}], en benzeri başta."""
-    rows = [row for row in read_rows() if is_candidate(row, run)]
+    altındakiler gelmez. Sorunun kendisi örnek olmaz: train sorusu çözülürken onun gold SQL'i de bellektedir.
+    Return: [{"question", "evidence", "sql"}], en benzeri başta."""
+    rows = [row for row in read_rows() if is_candidate(row, run) and row["question"] != question]
     if not rows:
         return []
     vectors = np.stack([np.frombuffer(row["vector"], dtype=np.float32) for row in rows])
